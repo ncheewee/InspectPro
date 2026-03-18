@@ -1,0 +1,1189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GPM InspectPro</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{background:#070c14;font-family:'Syne',sans-serif;color:#f0f4fa;-webkit-font-smoothing:antialiased;}
+  ::-webkit-scrollbar{width:4px;height:4px;}
+  ::-webkit-scrollbar-track{background:#0c1220;}
+  ::-webkit-scrollbar-thumb{background:#243552;border-radius:2px;}
+  select option{background:#0c1220;color:#f0f4fa;}
+  @keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
+  .fade-up{animation:fadeUp 0.28s ease forwards}
+  input,textarea,select,button{font-family:'Syne',sans-serif;}
+  input:focus,select:focus,textarea:focus{outline:none!important;border-color:#3b82f6!important;box-shadow:0 0 0 2px rgba(59,130,246,.15)!important;}
+  textarea{resize:vertical;}
+  img{display:block;}
+  #loading{display:flex;align-items:center;justify-content:center;height:100vh;color:#3d5270;font-size:13px;letter-spacing:.05em;}
+</style>
+</head>
+<body>
+<div id="root"><div id="loading">Loading GPM InspectPro…</div></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+
+<script type="text/babel">
+const { useState, useEffect, useRef } = React;
+
+// ─── DATA ─────────────────────────────────────────────────────────────────────
+const SEED_USERS = [
+  { id:"U001", name:"Ahmad Fauzi", role:"inspector", initials:"AF", color:"#3b82f6" },
+  { id:"U002", name:"Priya Nair",  role:"inspector", initials:"PN", color:"#8b5cf6" },
+  { id:"U003", name:"David Tan",   role:"inspector", initials:"DT", color:"#06b6d4" },
+  { id:"U004", name:"Sarah Lim",   role:"manager",   initials:"SL", color:"#ec4899" },
+  { id:"U005", name:"Chee Wee",    role:"manager",   initials:"CW", color:"#f59e0b" },
+];
+
+const ZONES = [
+  { id:"Z01", name:"Main Atrium / L1",    items:["Floor condition & slip hazards","Lighting – all fixtures working","Directional signage intact","General cleanliness","Air-con vents unobstructed","Fire exits clear & marked"] },
+  { id:"Z02", name:"Carpark B1",           items:["Lighting levels adequate","Drainage – no ponding","Bay line markings visible","Ventilation / exhaust fans","Safety barriers intact","CCTV cameras operational"] },
+  { id:"Z03", name:"Carpark B2",           items:["Lighting levels adequate","Drainage – no ponding","Bay line markings visible","Ventilation / exhaust fans","Safety barriers intact","CCTV cameras operational"] },
+  { id:"Z04", name:"L2 Retail Corridor",  items:["Floor surface condition","Lighting – full coverage","Storefronts – no protrusions","Common area cleanliness","Air-con diffusers clear","Emergency exits unobstructed"] },
+  { id:"Z05", name:"L3 F&B Zone",         items:["Grease trap – no spillage","Kitchen exhaust / ventilation","Floor drainage functional","Pest control – no evidence","Fire suppression system intact","Cleanliness & odour"] },
+  { id:"Z06", name:"Rooftop / M&E Plant", items:["Chiller units – no leaks or alarms","Cooling towers – water level OK","Water tank integrity","Safety railings intact","Rooftop drainage clear","Access hatches secured"] },
+  { id:"Z07", name:"Loading Bay / BOH",   items:["Access control functional","Bay cleanliness","Waste segregation compliant","Lighting adequate","Ramp / dock condition","CCTV cameras operational"] },
+  { id:"Z08", name:"External Linkway",    items:["Canopy / awning condition","Lighting – no failures","Slip-resistance surface OK","Drainage – no ponding","Pest control – no evidence","Cleanliness"] },
+];
+
+const ROUTES = [
+  { id:"R01", name:"Route A – North Wing",   zoneIds:["Z01","Z02","Z04","Z06"] },
+  { id:"R02", name:"Route B – South Wing",   zoneIds:["Z01","Z03","Z05","Z07"] },
+  { id:"R03", name:"Route C – Full Circuit", zoneIds:["Z01","Z02","Z03","Z04","Z05","Z06","Z07","Z08"] },
+  { id:"R04", name:"Route D – BOH & Ext",    zoneIds:["Z07","Z08","Z06"] },
+];
+
+const DAYS = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
+
+// ─── UTILS ────────────────────────────────────────────────────────────────────
+const getISOWeek = d => {
+  const dd = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  const day = dd.getUTCDay()||7; dd.setUTCDate(dd.getUTCDate()+4-day);
+  const y1 = new Date(Date.UTC(dd.getUTCFullYear(),0,1));
+  return { week:Math.ceil(((dd-y1)/86400000+1)/7), year:dd.getUTCFullYear() };
+};
+const weekKey = d => { const {week,year}=getISOWeek(d); return `${year}-W${String(week).padStart(2,"0")}`; };
+const dayOfWeekName = d => DAYS[(new Date(d).getDay()||7)-1];
+const getMondayOf = d => { const dd=new Date(d); const day=dd.getDay()||7; dd.setDate(dd.getDate()-day+1); dd.setHours(0,0,0,0); return dd; };
+const fmtTime  = ts => new Date(ts).toLocaleTimeString("en-SG",{hour:"2-digit",minute:"2-digit",hour12:false});
+const fmtDate  = ts => new Date(ts).toLocaleDateString("en-SG",{day:"2-digit",month:"short",year:"numeric"});
+const fmtShort = d  => `${d.getDate()}/${d.getMonth()+1}`;
+const fmtDur   = ms => { const m=Math.round(ms/60000); return `${Math.floor(m/60)}h ${m%60}m`; };
+const genId    = ()  => Math.random().toString(36).substr(2,8).toUpperCase();
+const LS = {
+  load: k => { try{const d=localStorage.getItem(k);return d?JSON.parse(d):null;}catch{return null;} },
+  save: (k,v) => { try{localStorage.setItem(k,JSON.stringify(v));}catch{} },
+};
+
+// ─── DESIGN ───────────────────────────────────────────────────────────────────
+const C = {
+  bg:"#070c14", surface:"#0c1220", card:"#101826", card2:"#162033",
+  border:"#1a2840", border2:"#243552",
+  amber:"#f59e0b", amberD:"#78350f",
+  blue:"#3b82f6", cyan:"#06b6d4", green:"#10b981", red:"#ef4444", purple:"#8b5cf6",
+  text:"#f0f4fa", text2:"#8ea0b8", text3:"#3d5270",
+};
+
+const card = (ex={}) => ({ background:C.card, border:`1px solid ${C.border}`, borderRadius:12, padding:"18px 22px", ...ex });
+const inp  = (ex={}) => ({ background:C.surface, border:`1px solid ${C.border2}`, borderRadius:8, padding:"9px 12px", color:C.text, fontSize:13, width:"100%", ...ex });
+const btn  = (v="pri",ex={}) => {
+  const base = { border:"none", borderRadius:8, padding:"9px 18px", fontSize:12, fontWeight:700, cursor:"pointer", transition:"all .15s", letterSpacing:".02em", fontFamily:"'Syne',sans-serif", ...ex };
+  if(v==="pri") return {...base,background:C.amber,color:"#070c14"};
+  if(v==="sec") return {...base,background:C.card2,color:C.text,border:`1px solid ${C.border2}`};
+  if(v==="danger") return {...base,background:"#4a0e0e",color:"#fca5a5"};
+  if(v==="success") return {...base,background:"#063325",color:"#6ee7b7"};
+  if(v==="ghost") return {...base,background:"transparent",color:C.text2,border:`1px solid ${C.border}`};
+  return base;
+};
+
+// ─── ATOMS ────────────────────────────────────────────────────────────────────
+function Mono({children,size=11,color,style={}}) {
+  return <span style={{fontFamily:"'DM Mono',monospace",fontSize:size,color:color||C.text3,...style}}>{children}</span>;
+}
+
+function Avatar({user,size=36}) {
+  return (
+    <div style={{width:size,height:size,borderRadius:"50%",background:user?.color||C.blue,display:"flex",alignItems:"center",justifyContent:"center",fontSize:size*.32,fontWeight:700,color:"#fff",flexShrink:0,fontFamily:"'DM Mono',monospace",border:`2px solid ${(user?.color||C.blue)+"44"}`}}>
+      {user?.initials||"?"}
+    </div>
+  );
+}
+
+function Badge({status}) {
+  const MAP = {
+    open:{bg:"#4a0e0e",color:"#fca5a5",label:"Open"},
+    "in-progress":{bg:"#3d2000",color:"#fde68a",label:"In Progress"},
+    closed:{bg:"#063325",color:"#6ee7b7",label:"Closed"},
+    ok:{bg:"#0a2318",color:"#6ee7b7",label:"OK"},
+    flagged:{bg:"#4a0e0e",color:"#fca5a5",label:"Flagged"},
+    pending:{bg:"#111d30",color:"#8ea0b8",label:"Pending"},
+  };
+  const s=MAP[status]||MAP.pending;
+  return <span style={{display:"inline-flex",alignItems:"center",gap:4,background:s.bg,color:s.color,fontSize:10,fontWeight:700,fontFamily:"'DM Mono',monospace",padding:"3px 8px",borderRadius:20,textTransform:"uppercase",letterSpacing:".06em",flexShrink:0}}>
+    <span style={{width:5,height:5,borderRadius:"50%",background:s.color}}/>{s.label}
+  </span>;
+}
+
+// ─── MODAL ────────────────────────────────────────────────────────────────────
+function Modal({onClose,children,title}) {
+  return (
+    <div onClick={e=>e.target===e.currentTarget&&onClose()} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.75)",backdropFilter:"blur(4px)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:300,padding:16}}>
+      <div style={{...card({background:C.card2}),maxWidth:420,width:"100%",maxHeight:"85vh",overflow:"auto"}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:18}}>
+          <span style={{fontSize:16,fontWeight:800,color:C.text}}>{title}</span>
+          <button onClick={onClose} style={{background:"none",border:"none",color:C.text3,cursor:"pointer",fontSize:18,lineHeight:1}}>✕</button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+// ─── NAVBAR ───────────────────────────────────────────────────────────────────
+function NavBar({view,setView,isManager,setIsManager}) {
+  const tabs = [
+    {id:"home",label:"Home",icon:"⌂"},
+    {id:"inspect",label:"Inspect",icon:"✓"},
+    {id:"tracker",label:"Tracker",icon:"◈"},
+    {id:"roster",label:"Roster",icon:"⊞"},
+    {id:"yearplan",label:"Year Plan",icon:"▦"},
+  ];
+  return (
+    <nav style={{background:C.surface,borderBottom:`1px solid ${C.border}`,position:"sticky",top:0,zIndex:200,boxShadow:"0 2px 16px rgba(0,0,0,.5)"}}>
+      <div style={{maxWidth:1140,margin:"0 auto",padding:"0 14px",display:"flex",alignItems:"center",gap:10}}>
+        <div style={{display:"flex",alignItems:"center",gap:9,padding:"11px 0",flexShrink:0}}>
+          <div style={{width:28,height:28,background:C.amber,borderRadius:6,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,fontSize:11,color:"#070c14"}}>GPM</div>
+          <span style={{fontWeight:800,fontSize:13,letterSpacing:".04em",color:C.text}}>Inspect<span style={{color:C.amber}}>Pro</span></span>
+        </div>
+        <div style={{display:"flex",gap:2,flex:1,overflowX:"auto",padding:"0 4px"}}>
+          {tabs.map(t=>(
+            <button key={t.id} onClick={()=>setView(t.id)} style={{background:view===t.id?`${C.amber}18`:"transparent",border:view===t.id?`1px solid ${C.amberD}`:"1px solid transparent",color:view===t.id?C.amber:C.text2,borderRadius:7,padding:"6px 12px",fontSize:11,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:5,transition:"all .15s",whiteSpace:"nowrap"}}>
+              <span style={{fontSize:9}}>{t.icon}</span>{t.label}
+            </button>
+          ))}
+        </div>
+        <button onClick={()=>setIsManager(!isManager)} style={{...btn(isManager?"pri":"ghost"),padding:"6px 12px",fontSize:11,flexShrink:0,display:"flex",alignItems:"center",gap:6}}>
+          {isManager?<><span style={{width:7,height:7,borderRadius:"50%",background:"#070c14",animation:"pulse 1.5s infinite",display:"inline-block"}}/>MGR ON</>:"⚙ Manager Mode"}
+        </button>
+      </div>
+    </nav>
+  );
+}
+
+// ─── HOME VIEW ────────────────────────────────────────────────────────────────
+function HomeView({today,wk,dn,todayAssignments,tracker,inspections,users,setView,isManager,roster,setRoster}) {
+  const {week} = getISOWeek(today);
+  const openCount   = tracker.filter(i=>i.status!=="closed").length;
+  const thisWkInsp  = inspections.filter(i=>weekKey(new Date(i.startTime))===wk).length;
+  const [addModal, setAddModal] = useState(false);
+  const [addForm,  setAddForm]  = useState({userId:"",routeId:""});
+
+  const addTodayAssignment = () => {
+    if(!addForm.userId||!addForm.routeId) return;
+    setRoster(prev=>({...prev,[wk]:{...(prev[wk]||{}),[dn]:[...(prev[wk]?.[dn]||[]),{userId:addForm.userId,routeId:addForm.routeId}]}}));
+    setAddModal(false); setAddForm({userId:"",routeId:""});
+  };
+  const removeTodayAssignment = idx => {
+    setRoster(prev=>({...prev,[wk]:{...(prev[wk]||{}),[dn]:(prev[wk]?.[dn]||[]).filter((_,i)=>i!==idx)}}));
+  };
+
+  // week coverage summary
+  const monday = getMondayOf(today);
+  const weekCoverage = DAYS.map((d,i)=>{
+    const dd=new Date(monday); dd.setDate(dd.getDate()+i);
+    const assigns=roster[wk]?.[d]||[];
+    return {day:d,date:fmtShort(dd),assigns,isToday:dd.toDateString()===today.toDateString()};
+  });
+
+  const recentInspections = inspections.slice(-5).reverse();
+
+  return (
+    <div className="fade-up">
+      {/* Manager banner */}
+      {isManager && (
+        <div style={{background:"linear-gradient(90deg,#3d2000,#1a1000)",border:`1px solid ${C.amberD}`,borderRadius:10,padding:"10px 16px",marginBottom:18,display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,flexWrap:"wrap"}}>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <span style={{width:8,height:8,borderRadius:"50%",background:C.amber,animation:"pulse 1.5s infinite",display:"inline-block"}}/>
+            <span style={{fontWeight:800,fontSize:13,color:C.amber}}>Manager Mode Active</span>
+            <Mono size={10} color={C.amberD} style={{background:"#2a1200",padding:"2px 8px",borderRadius:20}}>Full edit access enabled</Mono>
+          </div>
+          <div style={{display:"flex",gap:7}}>
+            <button onClick={()=>setView("roster")} style={btn("sec",{padding:"6px 12px",fontSize:11})}>Edit Roster</button>
+            <button onClick={()=>setView("yearplan")} style={btn("sec",{padding:"6px 12px",fontSize:11})}>Year Plan</button>
+          </div>
+        </div>
+      )}
+
+      {/* Header row */}
+      <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",flexWrap:"wrap",gap:12,marginBottom:22}}>
+        <div>
+          <Mono size={10} color={C.text3} style={{textTransform:"uppercase",letterSpacing:".1em",display:"block",marginBottom:4}}>{fmtDate(today)} · {dn} · Week {week}</Mono>
+          <h1 style={{fontSize:28,fontWeight:800,color:C.text,letterSpacing:"-.02em",marginBottom:4}}>{today.getHours()<12?"Good Morning":"Good Afternoon"} 👋</h1>
+          <p style={{color:C.text2,fontSize:13}}>
+            {users.filter(u=>u.role==="inspector").length} inspectors · {ROUTES.length} routes · {ZONES.length} zones
+          </p>
+        </div>
+        <button onClick={()=>setView("inspect")} style={btn("pri",{padding:"12px 22px",fontSize:14,display:"flex",alignItems:"center",gap:8})}>
+          ▶ Start Inspection
+        </button>
+      </div>
+
+      {/* Stats */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(155px,1fr))",gap:9,marginBottom:18}}>
+        {[
+          {label:"Open Issues",       value:openCount,    color:openCount>0?C.red:C.green, icon:"◈"},
+          {label:"Inspections (Wk)", value:thisWkInsp,   color:C.blue,   icon:"✓"},
+          {label:"Total Zones",       value:ZONES.length, color:C.cyan,   icon:"⊞"},
+          {label:"Active Routes",     value:ROUTES.length,color:C.purple, icon:"→"},
+        ].map(s=>(
+          <div key={s.label} style={card({padding:"14px 16px"})}>
+            <div style={{fontSize:14,color:s.color,marginBottom:5}}>{s.icon}</div>
+            <div style={{fontSize:24,fontWeight:800,color:s.color,letterSpacing:"-.02em",fontFamily:"'DM Mono',monospace"}}>{s.value}</div>
+            <Mono size={9} color={C.text3} style={{textTransform:"uppercase",letterSpacing:".07em"}}>{s.label}</Mono>
+          </div>
+        ))}
+      </div>
+
+      {/* Today's Roster */}
+      <div style={card({marginBottom:16})}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14,flexWrap:"wrap",gap:8}}>
+          <div style={{display:"flex",alignItems:"center",gap:9}}>
+            <span style={{fontWeight:800,fontSize:15,color:C.text}}>Today's Roster</span>
+            <Mono size={9} color={C.text3} style={{background:C.surface,padding:"3px 8px",borderRadius:20,textTransform:"uppercase"}}>{dn} · WK{String(week).padStart(2,"0")}</Mono>
+          </div>
+          {isManager
+            ? <button onClick={()=>setAddModal(true)} style={btn("pri",{padding:"6px 13px",fontSize:11})}>+ Add Assignment</button>
+            : <button onClick={()=>setView("roster")} style={btn("ghost",{padding:"6px 12px",fontSize:11})}>View Roster →</button>
+          }
+        </div>
+        {todayAssignments.length===0
+          ? <div style={{padding:"20px 0",textAlign:"center",color:C.text3,fontSize:13}}>
+              No assignments today.{isManager&&<span onClick={()=>setAddModal(true)} style={{color:C.amber,cursor:"pointer",marginLeft:5}}>Add one →</span>}
+            </div>
+          : <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(240px,1fr))",gap:9}}>
+              {todayAssignments.map((a,i)=>{
+                const u=users.find(u=>u.id===a.userId);
+                const r=ROUTES.find(r=>r.id===a.routeId);
+                return (
+                  <div key={i} style={{background:C.card2,border:`1px solid ${C.border2}`,borderRadius:10,padding:"12px 14px",display:"flex",flexDirection:"column",gap:9,position:"relative"}}>
+                    {isManager && (
+                      <button onClick={()=>removeTodayAssignment(i)} style={{position:"absolute",top:8,right:8,background:"none",border:"none",color:C.text3,cursor:"pointer",fontSize:12,padding:2}} title="Remove">✕</button>
+                    )}
+                    <div style={{display:"flex",alignItems:"center",gap:9}}>
+                      <Avatar user={u} size={36}/>
+                      <div>
+                        <div style={{fontWeight:700,fontSize:13,color:C.text}}>{u?.name||"Unknown"}</div>
+                        <Mono size={9}>{u?.id} · {u?.role}</Mono>
+                      </div>
+                    </div>
+                    <div style={{background:C.surface,borderRadius:7,padding:"8px 10px"}}>
+                      <div style={{fontSize:11,fontWeight:700,color:C.amber,marginBottom:4}}>{r?.name||"No route"}</div>
+                      <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
+                        {r?.zoneIds.map(z=>(
+                          <Mono key={z} size={9} color={C.text3} style={{background:"#0c1830",padding:"2px 6px",borderRadius:4,border:`1px solid ${C.border}`}}>{z}</Mono>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+        }
+      </div>
+
+      {/* Week Coverage (manager only) */}
+      {isManager && (
+        <div style={card({marginBottom:16})}>
+          <div style={{fontWeight:800,fontSize:14,color:C.text,marginBottom:14}}>This Week's Coverage</div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:6}}>
+            {weekCoverage.map(({day,date,assigns,isToday})=>(
+              <div key={day} style={{background:isToday?`${C.amber}0c`:C.surface,border:`1px solid ${isToday?C.amberD:C.border}`,borderRadius:8,padding:"9px 7px",textAlign:"center",minHeight:80}}>
+                <div style={{fontSize:11,fontWeight:800,color:isToday?C.amber:C.text2,marginBottom:2}}>{day}</div>
+                <Mono size={8} color={C.text3} style={{display:"block",marginBottom:6}}>{date}</Mono>
+                {assigns.length===0
+                  ? <Mono size={8} color={C.text3} style={{background:"#0c1220",padding:"2px 5px",borderRadius:4,display:"inline-block"}}>–</Mono>
+                  : assigns.map((a,i)=>{
+                      const u=users.find(u=>u.id===a.userId);
+                      return <div key={i} style={{width:8,height:8,borderRadius:"50%",background:u?.color||C.blue,margin:"2px auto"}} title={u?.name}/>;
+                    })
+                }
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Recent inspections (manager) */}
+      {isManager && recentInspections.length>0 && (
+        <div style={card({marginBottom:16})}>
+          <div style={{fontWeight:800,fontSize:14,color:C.text,marginBottom:14}}>Recent Inspection Reports</div>
+          <div style={{display:"flex",flexDirection:"column",gap:7}}>
+            {recentInspections.map(insp=>{
+              const u=users.find(u=>u.id===insp.userId);
+              const r=ROUTES.find(r=>r.id===insp.routeId);
+              const flags=insp.zones.flatMap(z=>z.items.filter(i=>i.status==="flagged")).length;
+              const dur=insp.endTime?fmtDur(insp.endTime-insp.startTime):"–";
+              return (
+                <div key={insp.id} style={{background:C.card2,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 13px",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+                  <Avatar user={u} size={28}/>
+                  <div style={{flex:1,minWidth:120}}>
+                    <div style={{fontSize:12,fontWeight:700,color:C.text}}>{u?.name} <span style={{color:C.text3,fontWeight:400}}>· {r?.name}</span></div>
+                    <Mono size={10} color={C.text3}>{fmtDate(insp.startTime)} · {dur}</Mono>
+                  </div>
+                  {flags>0
+                    ? <span style={{fontSize:11,color:C.red,fontWeight:700,background:"#4a0e0e",padding:"3px 9px",borderRadius:20}}>⚠ {flags} flagged</span>
+                    : <span style={{fontSize:11,color:C.green,fontWeight:700,background:"#063325",padding:"3px 9px",borderRadius:20}}>✓ Clear</span>
+                  }
+                  <button onClick={()=>setView("tracker")} style={btn("ghost",{padding:"5px 11px",fontSize:10})}>Tracker →</button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Open issues */}
+      {openCount>0 && (
+        <div style={card()}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:13,gap:8}}>
+            <span style={{fontWeight:800,fontSize:14,color:C.text}}>Open Issues <span style={{color:C.red}}>({openCount})</span></span>
+            <button onClick={()=>setView("tracker")} style={btn("ghost",{padding:"5px 11px",fontSize:11})}>All →</button>
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:6}}>
+            {tracker.filter(i=>i.status!=="closed").slice(0,5).map(item=>{
+              const u=users.find(u=>u.id===item.createdBy);
+              return (
+                <div key={item.id} style={{display:"flex",alignItems:"center",gap:9,background:C.card2,borderRadius:8,padding:"9px 12px",border:`1px solid ${C.border}`}}>
+                  <Badge status={item.status}/>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:12,color:C.text,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{item.itemLabel}</div>
+                    <Mono size={9} color={C.text3}>{item.zoneName} · {fmtDate(item.createdAt)}</Mono>
+                  </div>
+                  <Avatar user={u} size={22}/>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Add assignment modal */}
+      {addModal && (
+        <Modal onClose={()=>setAddModal(false)} title={`Assign for Today (${dn})`}>
+          <div style={{display:"flex",flexDirection:"column",gap:12}}>
+            <div>
+              <label style={{display:"block",fontSize:10,color:C.text3,fontFamily:"'DM Mono',monospace",textTransform:"uppercase",letterSpacing:".07em",marginBottom:5}}>Person</label>
+              <select value={addForm.userId} onChange={e=>setAddForm(f=>({...f,userId:e.target.value}))} style={inp()}>
+                <option value="">— Select —</option>
+                {users.map(u=><option key={u.id} value={u.id}>{u.name} ({u.role})</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={{display:"block",fontSize:10,color:C.text3,fontFamily:"'DM Mono',monospace",textTransform:"uppercase",letterSpacing:".07em",marginBottom:5}}>Route</label>
+              <select value={addForm.routeId} onChange={e=>setAddForm(f=>({...f,routeId:e.target.value}))} style={inp()}>
+                <option value="">— Select —</option>
+                {ROUTES.map(r=><option key={r.id} value={r.id}>{r.name}</option>)}
+              </select>
+            </div>
+            <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:4}}>
+              <button onClick={()=>setAddModal(false)} style={btn("ghost")}>Cancel</button>
+              <button onClick={addTodayAssignment} disabled={!addForm.userId||!addForm.routeId} style={{...btn("pri"),opacity:(!addForm.userId||!addForm.routeId)?0.35:1}}>Assign</button>
+            </div>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+// ─── INSPECT – SELECT ─────────────────────────────────────────────────────────
+function SelectStep({users,todayAssignments,startInspection}) {
+  const [selUser,setSelUser] = useState("");
+  const [selRoute,setSelRoute] = useState("");
+  const user = users.find(u=>u.id===selUser);
+  const todayRoute = todayAssignments.find(a=>a.userId===selUser);
+
+  return (
+    <div style={{maxWidth:560,margin:"0 auto"}} className="fade-up">
+      <h1 style={{fontSize:24,fontWeight:800,color:C.text,marginBottom:4,letterSpacing:"-.02em"}}>Start Inspection</h1>
+      <p style={{color:C.text2,fontSize:13,marginBottom:22}}>Select your ID and route to begin your round.</p>
+
+      <div style={card({marginBottom:12})}>
+        <label style={{display:"block",fontSize:10,color:C.text3,fontFamily:"'DM Mono',monospace",textTransform:"uppercase",letterSpacing:".08em",marginBottom:7}}>Your ID</label>
+        <select value={selUser} onChange={e=>{setSelUser(e.target.value);setSelRoute("");}} style={inp()}>
+          <option value="">— Select your name —</option>
+          {users.map(u=><option key={u.id} value={u.id}>{u.name} ({u.id}) · {u.role}</option>)}
+        </select>
+        {user && (
+          <div style={{display:"flex",alignItems:"center",gap:10,marginTop:11,padding:"10px 12px",background:C.surface,borderRadius:8,border:`1px solid ${C.border}`}}>
+            <Avatar user={user} size={40}/>
+            <div><div style={{fontWeight:700,color:C.text,fontSize:14}}>{user.name}</div><Mono size={9}>{user.role.toUpperCase()} · {user.id}</Mono></div>
+          </div>
+        )}
+      </div>
+
+      {selUser && (
+        <div style={card({marginBottom:12})}>
+          <label style={{display:"block",fontSize:10,color:C.text3,fontFamily:"'DM Mono',monospace",textTransform:"uppercase",letterSpacing:".08em",marginBottom:7}}>Route</label>
+          {todayRoute && (
+            <div style={{background:`${C.amber}10`,border:`1px solid ${C.amberD}`,borderRadius:7,padding:"8px 12px",marginBottom:10,fontSize:11,color:C.amber}}>
+              ★ Assigned today: <strong>{ROUTES.find(r=>r.id===todayRoute.routeId)?.name}</strong>
+            </div>
+          )}
+          <div style={{display:"flex",flexDirection:"column",gap:6}}>
+            {ROUTES.map(r=>(
+              <div key={r.id} onClick={()=>setSelRoute(r.id)} style={{background:selRoute===r.id?`${C.blue}18`:C.surface,border:`1px solid ${selRoute===r.id?C.blue:C.border}`,borderRadius:8,padding:"11px 13px",cursor:"pointer",transition:"all .15s"}}>
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
+                  <div>
+                    <div style={{fontWeight:700,fontSize:13,color:C.text,marginBottom:4}}>{r.name}</div>
+                    <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
+                      {r.zoneIds.map(z=><Mono key={z} size={9} color={C.text3} style={{background:"#0c1830",padding:"2px 6px",borderRadius:4,border:`1px solid ${C.border}`}}>{z}</Mono>)}
+                    </div>
+                  </div>
+                  <div style={{display:"flex",alignItems:"center",gap:7,flexShrink:0}}>
+                    {todayRoute?.routeId===r.id && <Mono size={8} color={C.amber}>★ ASSIGNED</Mono>}
+                    {selRoute===r.id && <span style={{color:C.blue,fontSize:14}}>✓</span>}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <button onClick={()=>startInspection(selUser,selRoute)} disabled={!selUser||!selRoute} style={{...btn("pri",{width:"100%",padding:"13px",fontSize:14}),opacity:(!selUser||!selRoute)?0.35:1}}>
+        Begin Inspection →
+      </button>
+    </div>
+  );
+}
+
+// ─── INSPECT – ZONE ───────────────────────────────────────────────────────────
+function ZoneStep({inspection,zoneIdx,updateItem,finishZone,users}) {
+  const zd   = inspection.zones[zoneIdx];
+  const zone = ZONES.find(z=>z.id===zd.zoneId);
+  const user = users.find(u=>u.id===inspection.userId);
+  const total= inspection.zones.length;
+  const allDone = zd.items.every(i=>i.status!=="pending");
+  const fileRefs = useRef({});
+
+  const handlePhoto = (idx,e) => {
+    const file=e.target.files?.[0]; if(!file) return;
+    const reader=new FileReader();
+    reader.onload=ev=>updateItem(zoneIdx,idx,{photos:[...zd.items[idx].photos,ev.target.result]});
+    reader.readAsDataURL(file);
+  };
+
+  return (
+    <div style={{maxWidth:680,margin:"0 auto"}} className="fade-up">
+      {/* Progress */}
+      <div style={{display:"flex",alignItems:"center",gap:11,marginBottom:18}}>
+        <Avatar user={user} size={34}/>
+        <div style={{flex:1}}>
+          <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
+            <Mono size={9} color={C.text3} style={{textTransform:"uppercase",letterSpacing:".08em"}}>Zone {zoneIdx+1} / {total}</Mono>
+            <Mono size={9} color={C.text3}>{zd.items.filter(i=>i.status!=="pending").length}/{zd.items.length} items</Mono>
+          </div>
+          <div style={{display:"flex",gap:3}}>
+            {inspection.zones.map((_,i)=>(
+              <div key={i} style={{flex:1,height:3,borderRadius:2,background:i<zoneIdx?C.green:i===zoneIdx?C.amber:C.border,transition:"background .3s"}}/>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Zone header */}
+      <div style={{...card({background:C.card2,marginBottom:12,padding:"14px 16px"}),display:"flex",alignItems:"center",gap:13}}>
+        <div style={{width:46,height:46,background:`${C.blue}18`,border:`1px solid ${C.blue}33`,borderRadius:9,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+          <Mono size={12} color={C.blue}>{zone?.id}</Mono>
+        </div>
+        <div>
+          <h2 style={{fontSize:17,fontWeight:800,color:C.text,marginBottom:2}}>{zone?.name}</h2>
+          <Mono size={9} color={C.text3}>{zd.startTime?`Started ${fmtTime(zd.startTime)}`:"–"} · {zone?.items.length} items</Mono>
+        </div>
+      </div>
+
+      {/* Items */}
+      <div style={{display:"flex",flexDirection:"column",gap:7,marginBottom:16}}>
+        {zd.items.map((item,idx)=>(
+          <div key={idx} style={{background:item.status==="flagged"?"#1a0808":item.status==="ok"?"#081a10":C.card,border:`1px solid ${item.status==="flagged"?C.red+"44":item.status==="ok"?C.green+"44":C.border}`,borderRadius:9,padding:"12px 14px",transition:"all .2s"}}>
+            <div style={{display:"flex",alignItems:"flex-start",gap:9}}>
+              <div style={{display:"flex",gap:5,flexShrink:0}}>
+                <button onClick={()=>updateItem(zoneIdx,idx,{status:"ok",observation:""})} style={{width:28,height:28,borderRadius:6,cursor:"pointer",fontSize:12,border:`1px solid ${item.status==="ok"?C.green:C.border2}`,background:item.status==="ok"?C.green:"transparent",color:item.status==="ok"?"#fff":C.text3,display:"flex",alignItems:"center",justifyContent:"center",transition:"all .15s"}} title="Mark OK">✓</button>
+                <button onClick={()=>updateItem(zoneIdx,idx,{status:item.status==="flagged"?"pending":"flagged"})} style={{width:28,height:28,borderRadius:6,cursor:"pointer",fontSize:12,border:`1px solid ${item.status==="flagged"?C.red:C.border2}`,background:item.status==="flagged"?C.red:"transparent",color:item.status==="flagged"?"#fff":C.text3,display:"flex",alignItems:"center",justifyContent:"center",transition:"all .15s"}} title="Flag issue">!</button>
+              </div>
+              <div style={{flex:1}}>
+                <div style={{fontSize:13,fontWeight:600,color:C.text,lineHeight:1.4}}>{item.label}</div>
+                {item.status==="flagged" && (
+                  <div style={{marginTop:9}}>
+                    <textarea placeholder="Describe the observation…" value={item.observation} onChange={e=>updateItem(zoneIdx,idx,{observation:e.target.value})} style={{...inp({height:68,fontSize:12,marginBottom:7})}}/>
+                    <div style={{display:"flex",gap:7,alignItems:"center",flexWrap:"wrap"}}>
+                      <button onClick={()=>fileRefs.current[idx]?.click()} style={btn("ghost",{padding:"5px 10px",fontSize:11})}>📷 Photo{item.photos.length>0?` (${item.photos.length})`:""}</button>
+                      <input type="file" accept="image/*" capture="environment" style={{display:"none"}} ref={el=>fileRefs.current[idx]=el} onChange={e=>handlePhoto(idx,e)}/>
+                      {item.photos.map((ph,pi)=>(
+                        <div key={pi} style={{width:36,height:36,borderRadius:5,overflow:"hidden",border:`1px solid ${C.border2}`,flexShrink:0}}>
+                          <img src={ph} style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+              <Badge status={item.status}/>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:5}}>
+        <button onClick={finishZone} disabled={!allDone} style={{...btn("pri",{padding:"12px 26px",fontSize:14}),opacity:allDone?1:0.35}}>
+          {zoneIdx+1<total?"Next Zone →":"Complete Inspection ✓"}
+        </button>
+        {!allDone&&<Mono size={10} color={C.text3}>Mark all items before proceeding.</Mono>}
+      </div>
+    </div>
+  );
+}
+
+// ─── INSPECT – SUMMARY ────────────────────────────────────────────────────────
+function SummaryStep({inspection,submitInspection,users}) {
+  const user  = users.find(u=>u.id===inspection.userId);
+  const route = ROUTES.find(r=>r.id===inspection.routeId);
+  const allFlags = inspection.zones.flatMap(z=>z.items.filter(i=>i.status==="flagged").map(i=>({...i,zoneName:ZONES.find(z2=>z2.id===z.zoneId)?.name,zoneId:z.zoneId})));
+  const dur = inspection.endTime?inspection.endTime-inspection.startTime:null;
+
+  return (
+    <div style={{maxWidth:680,margin:"0 auto"}} className="fade-up">
+      <div style={{...card({background:`${C.green}0a`,border:`1px solid ${C.green}33`,marginBottom:16,padding:"18px 20px"})}}>
+        <div style={{fontSize:26,marginBottom:7}}>✅</div>
+        <h1 style={{fontSize:20,fontWeight:800,color:C.text,marginBottom:3}}>Inspection Complete</h1>
+        <Mono size={10} color={C.text3}>{fmtDate(inspection.startTime)} · {fmtTime(inspection.startTime)}–{inspection.endTime?fmtTime(inspection.endTime):"–"}{dur?` · ${fmtDur(dur)}`:""}</Mono>
+      </div>
+
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9,marginBottom:16}}>
+        {[
+          {label:"Inspector",  value:<div style={{display:"flex",alignItems:"center",gap:7}}><Avatar user={user} size={26}/><span style={{fontSize:13,fontWeight:700,color:C.text}}>{user?.name}</span></div>},
+          {label:"Route",      value:<span style={{fontSize:13,fontWeight:700,color:C.text}}>{route?.name}</span>},
+          {label:"Zones Done", value:<span style={{fontSize:22,fontWeight:800,color:C.cyan,fontFamily:"'DM Mono',monospace"}}>{inspection.zones.length}</span>},
+          {label:"Flagged",    value:<span style={{fontSize:22,fontWeight:800,color:allFlags.length?C.red:C.green,fontFamily:"'DM Mono',monospace"}}>{allFlags.length}</span>},
+        ].map(s=>(
+          <div key={s.label} style={card({padding:"12px 14px"})}>
+            <Mono size={9} color={C.text3} style={{textTransform:"uppercase",letterSpacing:".07em",display:"block",marginBottom:5}}>{s.label}</Mono>
+            {s.value}
+          </div>
+        ))}
+      </div>
+
+      <div style={card({marginBottom:allFlags.length?16:0})}>
+        <div style={{fontWeight:700,fontSize:13,color:C.text,marginBottom:11}}>Zone Breakdown</div>
+        <div style={{display:"flex",flexDirection:"column",gap:5}}>
+          {inspection.zones.map((z,i)=>{
+            const zone=ZONES.find(zz=>zz.id===z.zoneId);
+            const dur2=z.endTime&&z.startTime?z.endTime-z.startTime:null;
+            const fCnt=z.items.filter(i2=>i2.status==="flagged").length;
+            return (
+              <div key={i} style={{display:"flex",alignItems:"center",gap:9,background:C.surface,borderRadius:7,padding:"7px 11px"}}>
+                <Mono size={9} color={C.blue} style={{background:`${C.blue}18`,padding:"2px 6px",borderRadius:4,flexShrink:0}}>{z.zoneId}</Mono>
+                <span style={{flex:1,fontSize:11,color:C.text2}}>{zone?.name}</span>
+                {fCnt>0&&<Badge status="flagged"/>}
+                {dur2&&<Mono size={9} color={C.text3}>{fmtDur(dur2)}</Mono>}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {allFlags.length>0 && (
+        <div style={card({marginBottom:16,border:`1px solid ${C.red}33`})}>
+          <div style={{fontWeight:700,fontSize:12,color:C.red,marginBottom:11}}>⚠ {allFlags.length} Flagged – will be added to Tracker</div>
+          <div style={{display:"flex",flexDirection:"column",gap:6}}>
+            {allFlags.map((f,i)=>(
+              <div key={i} style={{background:"#160808",border:`1px solid ${C.red}22`,borderRadius:7,padding:"9px 11px"}}>
+                <div style={{fontSize:12,fontWeight:600,color:C.text}}>{f.label}</div>
+                <Mono size={9} color={C.text3}>{f.zoneName}</Mono>
+                {f.observation&&<div style={{fontSize:11,color:C.text2,marginTop:3,lineHeight:1.4}}>{f.observation}</div>}
+                {f.photos?.length>0&&<div style={{display:"flex",gap:5,marginTop:5}}>{f.photos.map((ph,pi)=><img key={pi} src={ph} style={{width:38,height:38,objectFit:"cover",borderRadius:4,border:`1px solid ${C.border}`}}/>)}</div>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <button onClick={submitInspection} style={btn("pri",{width:"100%",padding:"13px",fontSize:14})}>
+        📤 Submit & Send Report to Manager
+      </button>
+      <p style={{fontSize:10,color:C.text3,textAlign:"center",marginTop:7}}>Flagged items auto-added to master tracker.</p>
+    </div>
+  );
+}
+
+function InspectView({step,users,todayAssignments,activeInspection,activeZoneIdx,startInspection,updateZoneItem,finishZone,submitInspection}) {
+  if(step==="select") return <SelectStep users={users} todayAssignments={todayAssignments} startInspection={startInspection}/>;
+  if(step==="zone"&&activeInspection) return <ZoneStep inspection={activeInspection} zoneIdx={activeZoneIdx} updateItem={updateZoneItem} finishZone={finishZone} users={users}/>;
+  if(step==="summary"&&activeInspection) return <SummaryStep inspection={activeInspection} submitInspection={submitInspection} users={users}/>;
+  return null;
+}
+
+// ─── TRACKER ─────────────────────────────────────────────────────────────────
+function TrackerItem({item,expanded,onToggle,onUpdate,users}) {
+  const [noteText,setNoteText] = useState("");
+  const [noteUser,setNoteUser] = useState(users[0]?.id||"");
+  const creator = users.find(u=>u.id===item.createdBy);
+
+  const addNote = () => {
+    if(!noteText.trim()) return;
+    onUpdate(item.id,{notes:[...(item.notes||[]),{text:noteText.trim(),by:noteUser,at:Date.now()}]});
+    setNoteText("");
+  };
+
+  return (
+    <div style={{background:C.card,border:`1px solid ${expanded?C.border2:C.border}`,borderRadius:10,overflow:"hidden",transition:"border-color .15s"}}>
+      <div onClick={onToggle} style={{padding:"12px 16px",cursor:"pointer",display:"flex",alignItems:"center",gap:9}}>
+        <Badge status={item.status}/>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{fontSize:13,fontWeight:700,color:C.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{item.itemLabel}</div>
+          <div style={{display:"flex",gap:7,marginTop:2,flexWrap:"wrap"}}>
+            <Mono size={9} color={C.text3} style={{background:`${C.blue}18`,padding:"2px 6px",borderRadius:4}}>{item.zoneId}</Mono>
+            <Mono size={9} color={C.text3}>{item.zoneName}</Mono>
+            <Mono size={9} color={C.text3}>· {fmtDate(item.createdAt)}</Mono>
+            <Mono size={9} color={C.text3}>· {creator?.name||item.createdBy}</Mono>
+            {(item.notes?.length||0)>0&&<Mono size={9} color={C.blue}>· {item.notes.length} note{item.notes.length>1?"s":""}</Mono>}
+          </div>
+        </div>
+        <span style={{color:C.text3,fontSize:10,flexShrink:0}}>{expanded?"▲":"▼"}</span>
+      </div>
+      {expanded && (
+        <div style={{borderTop:`1px solid ${C.border}`,padding:"14px 16px",background:C.surface}}>
+          {item.observation&&(
+            <div style={{marginBottom:13}}>
+              <Mono size={9} color={C.text3} style={{textTransform:"uppercase",letterSpacing:".07em",display:"block",marginBottom:4}}>Observation</Mono>
+              <div style={{fontSize:12,color:C.text2,background:C.card,borderRadius:7,padding:"9px 11px",lineHeight:1.5}}>{item.observation}</div>
+            </div>
+          )}
+          {item.photos?.length>0&&(
+            <div style={{marginBottom:13}}>
+              <Mono size={9} color={C.text3} style={{textTransform:"uppercase",letterSpacing:".07em",display:"block",marginBottom:5}}>Photos</Mono>
+              <div style={{display:"flex",gap:6}}>{item.photos.map((ph,i)=><img key={i} src={ph} style={{width:68,height:68,objectFit:"cover",borderRadius:6,border:`1px solid ${C.border}`}}/>)}</div>
+            </div>
+          )}
+          <div style={{display:"flex",gap:6,alignItems:"center",marginBottom:13,flexWrap:"wrap"}}>
+            <Mono size={9} color={C.text3} style={{textTransform:"uppercase"}}>Status:</Mono>
+            {["open","in-progress","closed"].map(s=>(
+              <button key={s} onClick={()=>onUpdate(item.id,{status:s})} style={{...btn(s==="closed"?"success":s==="in-progress"?"sec":"danger",{padding:"4px 10px",fontSize:10}),opacity:item.status===s?1:0.45,fontWeight:item.status===s?800:600}}>{s}</button>
+            ))}
+          </div>
+          {(item.notes?.length||0)>0&&(
+            <div style={{marginBottom:11}}>
+              <Mono size={9} color={C.text3} style={{textTransform:"uppercase",letterSpacing:".07em",display:"block",marginBottom:5}}>Activity</Mono>
+              <div style={{display:"flex",flexDirection:"column",gap:4}}>
+                {item.notes.map((n,i)=>{
+                  const u=users.find(u=>u.id===n.by);
+                  return (
+                    <div key={i} style={{background:C.card,borderRadius:7,padding:"7px 10px",border:`1px solid ${C.border}`}}>
+                      <div style={{fontSize:12,color:C.text,lineHeight:1.4}}>{n.text}</div>
+                      <Mono size={9} color={C.text3}>{u?.name||n.by} · {fmtDate(n.at)} {fmtTime(n.at)}</Mono>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+          <div>
+            <Mono size={9} color={C.text3} style={{textTransform:"uppercase",letterSpacing:".07em",display:"block",marginBottom:6}}>Add Note</Mono>
+            <div style={{display:"flex",gap:7,marginBottom:6}}>
+              <select value={noteUser} onChange={e=>setNoteUser(e.target.value)} style={inp({width:"auto",padding:"7px 10px",fontSize:12,flex:"0 0 auto"})}>
+                {users.map(u=><option key={u.id} value={u.id}>{u.name}</option>)}
+              </select>
+            </div>
+            <div style={{display:"flex",gap:7}}>
+              <input value={noteText} onChange={e=>setNoteText(e.target.value)} placeholder="Add a follow-up note…" style={inp({flex:1})} onKeyDown={e=>e.key==="Enter"&&addNote()}/>
+              <button onClick={addNote} style={btn("pri",{padding:"9px 15px",fontSize:12,flexShrink:0})}>Post</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TrackerView({tracker,setTracker,users}) {
+  const [sortBy,setSortBy]     = useState("date");
+  const [fStatus,setFStatus]   = useState("all");
+  const [fZone,setFZone]       = useState("all");
+  const [expanded,setExpanded] = useState(null);
+
+  const upd = (id,upd) => setTracker(prev=>prev.map(i=>i.id===id?{...i,...upd,updatedAt:Date.now()}:i));
+  const zones = [...new Set(tracker.map(i=>i.zoneId))];
+  const filtered = tracker
+    .filter(i=>fStatus==="all"||i.status===fStatus)
+    .filter(i=>fZone==="all"||i.zoneId===fZone)
+    .sort((a,b)=>sortBy==="date"?b.createdAt-a.createdAt:a.zoneId.localeCompare(b.zoneId));
+
+  const counts={open:tracker.filter(i=>i.status==="open").length,inProgress:tracker.filter(i=>i.status==="in-progress").length,closed:tracker.filter(i=>i.status==="closed").length};
+
+  return (
+    <div className="fade-up">
+      <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",flexWrap:"wrap",gap:12,marginBottom:20}}>
+        <div>
+          <h1 style={{fontSize:26,fontWeight:800,color:C.text,letterSpacing:"-.02em",marginBottom:4}}>Issue Tracker</h1>
+          <div style={{display:"flex",gap:9,flexWrap:"wrap"}}>
+            <Mono size={11} color={C.red}>{counts.open} open</Mono>
+            <Mono size={11} color={C.text3}>·</Mono>
+            <Mono size={11} color={C.amber}>{counts.inProgress} in progress</Mono>
+            <Mono size={11} color={C.text3}>·</Mono>
+            <Mono size={11} color={C.green}>{counts.closed} closed</Mono>
+          </div>
+        </div>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+          <select value={fStatus} onChange={e=>setFStatus(e.target.value)} style={inp({width:"auto",padding:"6px 10px",fontSize:11})}>
+            <option value="all">All Status</option>
+            <option value="open">Open</option>
+            <option value="in-progress">In Progress</option>
+            <option value="closed">Closed</option>
+          </select>
+          <select value={fZone} onChange={e=>setFZone(e.target.value)} style={inp({width:"auto",padding:"6px 10px",fontSize:11})}>
+            <option value="all">All Zones</option>
+            {zones.map(z=><option key={z} value={z}>{ZONES.find(zz=>zz.id===z)?.name||z}</option>)}
+          </select>
+          <div style={{display:"flex",background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:"hidden"}}>
+            {["date","zone"].map(s=>(
+              <button key={s} onClick={()=>setSortBy(s)} style={{padding:"6px 12px",fontSize:11,border:"none",cursor:"pointer",background:sortBy===s?C.amber:"transparent",color:sortBy===s?"#070c14":C.text2,fontFamily:"'Syne',sans-serif",fontWeight:700}}>
+                {s==="date"?"↓ Date":"A–Z Zone"}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+      {filtered.length===0
+        ? <div style={card({textAlign:"center",padding:"48px",color:C.text3})}>{tracker.length===0?"No issues logged. Flagged inspection items will appear here.":"No items match the filters."}</div>
+        : <div style={{display:"flex",flexDirection:"column",gap:7}}>
+            {filtered.map(item=>(
+              <TrackerItem key={item.id} item={item} expanded={expanded===item.id} onToggle={()=>setExpanded(expanded===item.id?null:item.id)} onUpdate={upd} users={users}/>
+            ))}
+          </div>
+      }
+    </div>
+  );
+}
+
+// ─── ROSTER ───────────────────────────────────────────────────────────────────
+function RosterView({roster,setRoster,users,isManager,today}) {
+  const [cur,setCur] = useState(today);
+  const [modal,setModal] = useState(null);
+  const [form,setForm]   = useState({userId:"",routeId:""});
+
+  const wk = weekKey(cur);
+  const {week,year} = getISOWeek(cur);
+  const monday = getMondayOf(cur);
+  const dayDate = i => { const d=new Date(monday); d.setDate(d.getDate()+i); return d; };
+  const assigns = roster[wk]||{};
+
+  const addAssign = () => {
+    if(!form.userId||!form.routeId||!modal) return;
+    setRoster(prev=>({...prev,[wk]:{...(prev[wk]||{}),[modal.day]:[...(prev[wk]?.[modal.day]||[]),{userId:form.userId,routeId:form.routeId}]}}));
+    setModal(null); setForm({userId:"",routeId:""});
+  };
+  const removeAssign = (day,idx) => {
+    setRoster(prev=>({...prev,[wk]:{...(prev[wk]||{}),[day]:(prev[wk]?.[day]||[]).filter((_,i)=>i!==idx)}}));
+  };
+
+  return (
+    <div className="fade-up">
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20,flexWrap:"wrap",gap:12}}>
+        <div>
+          <h1 style={{fontSize:26,fontWeight:800,color:C.text,letterSpacing:"-.02em",marginBottom:4}}>Weekly Roster</h1>
+          <Mono size={11} color={C.text3}>Week {week} · {year} · {fmtShort(monday)} – {fmtShort(dayDate(6))}</Mono>
+        </div>
+        <div style={{display:"flex",gap:7,alignItems:"center"}}>
+          <button onClick={()=>setCur(d=>{const dd=new Date(d);dd.setDate(dd.getDate()-7);return dd;})} style={btn("ghost",{padding:"7px 13px",fontSize:12})}>← Prev</button>
+          <button onClick={()=>setCur(today)} style={btn("sec",{padding:"7px 12px",fontSize:12})}>Today</button>
+          <button onClick={()=>setCur(d=>{const dd=new Date(d);dd.setDate(dd.getDate()+7);return dd;})} style={btn("ghost",{padding:"7px 13px",fontSize:12})}>Next →</button>
+        </div>
+      </div>
+
+      {!isManager&&<div style={{background:"#1a1000",border:`1px solid ${C.amberD}`,borderRadius:8,padding:"9px 14px",marginBottom:14,fontSize:12,color:C.amber}}>👁 View-only. Enable Manager Mode to edit assignments.</div>}
+
+      <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:7}}>
+        {DAYS.map((day,idx)=>{
+          const date=dayDate(idx);
+          const isToday=date.toDateString()===today.toDateString();
+          const dayAssigns=assigns[day]||[];
+          return (
+            <div key={day} style={{background:isToday?`${C.amber}0a`:C.card,border:`1px solid ${isToday?C.amberD:C.border}`,borderRadius:10,padding:"10px 8px",minHeight:160,display:"flex",flexDirection:"column"}}>
+              <div style={{marginBottom:7}}>
+                <div style={{fontSize:12,fontWeight:800,color:isToday?C.amber:C.text}}>{day}</div>
+                <Mono size={9} color={C.text3}>{fmtShort(date)}</Mono>
+              </div>
+              <div style={{flex:1,display:"flex",flexDirection:"column",gap:4}}>
+                {dayAssigns.map((a,i)=>{
+                  const u=users.find(u=>u.id===a.userId);
+                  const r=ROUTES.find(r=>r.id===a.routeId);
+                  return (
+                    <div key={i} style={{background:u?.color?`${u.color}18`:C.card2,border:`1px solid ${u?.color?u.color+"33":C.border}`,borderRadius:6,padding:"4px 6px",display:"flex",alignItems:"flex-start",gap:4,position:"relative"}}>
+                      <Avatar user={u} size={16}/>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontSize:9,fontWeight:700,color:C.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{u?.name?.split(" ")[0]}</div>
+                        <div style={{fontSize:8,color:C.text3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontFamily:"'DM Mono',monospace"}}>{r?.id}</div>
+                      </div>
+                      {isManager&&<button onClick={()=>removeAssign(day,i)} style={{background:"none",border:"none",color:C.text3,cursor:"pointer",fontSize:8,padding:0,flexShrink:0}}>✕</button>}
+                    </div>
+                  );
+                })}
+              </div>
+              {isManager&&(
+                <button onClick={()=>setModal({day})} style={{marginTop:5,background:"transparent",border:`1px dashed ${C.border2}`,borderRadius:6,padding:"3px 0",color:C.text3,cursor:"pointer",fontSize:9,width:"100%",fontFamily:"'Syne',sans-serif"}}>+ Add</button>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {modal&&(
+        <Modal onClose={()=>setModal(null)} title={`Assign – ${modal.day}`}>
+          <div style={{display:"flex",flexDirection:"column",gap:11}}>
+            <div>
+              <label style={{display:"block",fontSize:10,color:C.text3,fontFamily:"'DM Mono',monospace",textTransform:"uppercase",letterSpacing:".07em",marginBottom:5}}>Person</label>
+              <select value={form.userId} onChange={e=>setForm(f=>({...f,userId:e.target.value}))} style={inp()}>
+                <option value="">— Select —</option>
+                {users.map(u=><option key={u.id} value={u.id}>{u.name} ({u.role})</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={{display:"block",fontSize:10,color:C.text3,fontFamily:"'DM Mono',monospace",textTransform:"uppercase",letterSpacing:".07em",marginBottom:5}}>Route</label>
+              <select value={form.routeId} onChange={e=>setForm(f=>({...f,routeId:e.target.value}))} style={inp()}>
+                <option value="">— Select —</option>
+                {ROUTES.map(r=><option key={r.id} value={r.id}>{r.name}</option>)}
+              </select>
+            </div>
+            <div style={{display:"flex",gap:7,justifyContent:"flex-end"}}>
+              <button onClick={()=>setModal(null)} style={btn("ghost")}>Cancel</button>
+              <button onClick={addAssign} disabled={!form.userId||!form.routeId} style={{...btn("pri"),opacity:(!form.userId||!form.routeId)?0.35:1}}>Assign</button>
+            </div>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+// ─── YEAR PLAN ────────────────────────────────────────────────────────────────
+function YearPlanView({roster,setRoster,users,today,isManager}) {
+  const [selYear,setSelYear]  = useState(today.getFullYear());
+  const [viewMode,setViewMode]= useState("names"); // "names" | "compact"
+  const [editModal,setEditModal] = useState(null); // {wk, day}
+  const [editForm,setEditForm]   = useState({userId:"",routeId:""});
+  const todayWk = weekKey(today);
+
+  // Build weeks
+  const weeks = [];
+  const firstMon = getMondayOf(new Date(selYear,0,1));
+  const d = new Date(firstMon);
+  while(weeks.length<=53) {
+    const {week,year:wy} = getISOWeek(d);
+    if(wy>selYear) break;
+    if(wy===selYear) {
+      const wk=`${wy}-W${String(week).padStart(2,"0")}`;
+      const endD=new Date(d); endD.setDate(endD.getDate()+6);
+      weeks.push({wk,week,monday:new Date(d),endDate:endD,assignments:roster[wk]||{}});
+    }
+    d.setDate(d.getDate()+7);
+  }
+
+  const addEditAssign = () => {
+    if(!editForm.userId||!editForm.routeId||!editModal) return;
+    const {wk,day}=editModal;
+    setRoster(prev=>({...prev,[wk]:{...(prev[wk]||{}),[day]:[...(prev[wk]?.[day]||[]),{userId:editForm.userId,routeId:editForm.routeId}]}}));
+    setEditModal(null); setEditForm({userId:"",routeId:""});
+  };
+  const removeAssign = (wk,day,idx) => {
+    setRoster(prev=>({...prev,[wk]:{...(prev[wk]||{}),[day]:(prev[wk]?.[day]||[]).filter((_,i)=>i!==idx)}}));
+  };
+
+  // Count assigned days per user per week
+  const userWeekCount = (wk,uid) => {
+    const wkData=roster[wk]||{};
+    return DAYS.reduce((n,d)=>n+(wkData[d]||[]).filter(a=>a.userId===uid).length,0);
+  };
+
+  return (
+    <div className="fade-up">
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:18,flexWrap:"wrap",gap:12}}>
+        <div>
+          <h1 style={{fontSize:26,fontWeight:800,color:C.text,letterSpacing:"-.02em",marginBottom:4}}>Year Roster Plan</h1>
+          <Mono size={11} color={C.text3}>Full year · week-by-week assignment view · {selYear}</Mono>
+        </div>
+        <div style={{display:"flex",gap:7,alignItems:"center",flexWrap:"wrap"}}>
+          <div style={{display:"flex",background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:"hidden"}}>
+            {[{id:"names",label:"Full Names"},{id:"compact",label:"Compact"}].map(m=>(
+              <button key={m.id} onClick={()=>setViewMode(m.id)} style={{padding:"6px 12px",fontSize:11,border:"none",cursor:"pointer",background:viewMode===m.id?C.amber:"transparent",color:viewMode===m.id?"#070c14":C.text2,fontFamily:"'Syne',sans-serif",fontWeight:700}}>
+                {m.label}
+              </button>
+            ))}
+          </div>
+          <button onClick={()=>setSelYear(y=>y-1)} style={btn("ghost",{padding:"6px 12px",fontSize:11})}>← {selYear-1}</button>
+          <button onClick={()=>setSelYear(today.getFullYear())} style={btn("sec",{padding:"6px 11px",fontSize:11})}>This Year</button>
+          <button onClick={()=>setSelYear(y=>y+1)} style={btn("ghost",{padding:"6px 12px",fontSize:11})}>{selYear+1} →</button>
+        </div>
+      </div>
+
+      {/* Legend */}
+      <div style={{display:"flex",gap:10,marginBottom:14,flexWrap:"wrap"}}>
+        {users.map(u=>(
+          <div key={u.id} style={{display:"flex",alignItems:"center",gap:5,background:C.card,border:`1px solid ${C.border}`,borderRadius:20,padding:"3px 9px"}}>
+            <div style={{width:8,height:8,borderRadius:"50%",background:u.color}}/>
+            <Mono size={10} color={C.text2}>{u.name.split(" ")[0]} <span style={{color:C.text3}}>({u.id})</span></Mono>
+          </div>
+        ))}
+      </div>
+
+      {viewMode==="names" ? (
+        /* ── FULL NAME TABLE ── */
+        <div style={{overflowX:"auto"}}>
+          <table style={{width:"100%",borderCollapse:"collapse",minWidth:900}}>
+            <thead>
+              <tr style={{background:C.card2}}>
+                <th style={{padding:"9px 12px",textAlign:"left",borderBottom:`1px solid ${C.border}`,borderRight:`1px solid ${C.border}`,width:52,fontSize:0}}>
+                  <Mono size={9} color={C.text3} style={{textTransform:"uppercase",letterSpacing:".07em"}}>Wk</Mono>
+                </th>
+                <th style={{padding:"9px 8px",textAlign:"left",borderBottom:`1px solid ${C.border}`,borderRight:`1px solid ${C.border}`,width:80}}>
+                  <Mono size={9} color={C.text3} style={{textTransform:"uppercase",letterSpacing:".07em"}}>Dates</Mono>
+                </th>
+                {DAYS.map(d=>(
+                  <th key={d} style={{padding:"9px 6px",textAlign:"center",borderBottom:`1px solid ${C.border}`,borderRight:`1px solid ${C.border}`,minWidth:100}}>
+                    <Mono size={9} color={C.text3} style={{textTransform:"uppercase"}}>{d}</Mono>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {weeks.map(({wk,week,monday,endDate,assignments})=>{
+                const isCurrent=wk===todayWk;
+                return (
+                  <tr key={wk} style={{background:isCurrent?`${C.amber}08`:"transparent"}}>
+                    <td style={{padding:"6px 12px",borderBottom:`1px solid ${C.border}`,borderRight:`1px solid ${C.border}`,verticalAlign:"top"}}>
+                      <Mono size={10} color={isCurrent?C.amber:C.text3} style={{fontWeight:isCurrent?700:400,whiteSpace:"nowrap"}}>
+                        {isCurrent?"▶ ":""}{`W${String(week).padStart(2,"0")}`}
+                      </Mono>
+                    </td>
+                    <td style={{padding:"6px 8px",borderBottom:`1px solid ${C.border}`,borderRight:`1px solid ${C.border}`,verticalAlign:"top"}}>
+                      <Mono size={9} color={C.text3} style={{whiteSpace:"nowrap"}}>{fmtShort(monday)}–{fmtShort(endDate)}</Mono>
+                    </td>
+                    {DAYS.map(day=>{
+                      const dayA=assignments[day]||[];
+                      return (
+                        <td key={day} style={{padding:"4px 5px",borderBottom:`1px solid ${C.border}`,borderRight:`1px solid ${C.border}`,verticalAlign:"top",minHeight:32}}>
+                          <div style={{display:"flex",flexDirection:"column",gap:3}}>
+                            {dayA.map((a,i)=>{
+                              const u=users.find(u=>u.id===a.userId);
+                              const r=ROUTES.find(r=>r.id===a.routeId);
+                              return (
+                                <div key={i} style={{background:u?.color?`${u.color}20`:C.card2,border:`1px solid ${u?.color?u.color+"33":C.border}`,borderRadius:5,padding:"3px 6px",display:"flex",alignItems:"center",gap:5,position:"relative",cursor:"default"}} title={`${u?.name} – ${r?.name}`}>
+                                  <div style={{width:6,height:6,borderRadius:"50%",background:u?.color||C.blue,flexShrink:0}}/>
+                                  <div style={{minWidth:0}}>
+                                    <div style={{fontSize:9,fontWeight:700,color:C.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:75}}>{u?.name?.split(" ")[0]}</div>
+                                    <Mono size={8} color={C.text3} style={{whiteSpace:"nowrap"}}>{r?.id}</Mono>
+                                  </div>
+                                  {isManager&&<button onClick={()=>removeAssign(wk,day,i)} style={{background:"none",border:"none",color:C.text3,cursor:"pointer",fontSize:8,padding:0,flexShrink:0,lineHeight:1}} title="Remove">✕</button>}
+                                </div>
+                              );
+                            })}
+                            {isManager&&(
+                              <button onClick={()=>{setEditModal({wk,day});setEditForm({userId:"",routeId:""}); }} style={{background:"transparent",border:`1px dashed ${C.border}`,borderRadius:4,padding:"2px 0",color:C.text3,cursor:"pointer",fontSize:8,width:"100%",fontFamily:"'Syne',sans-serif",textAlign:"center"}}>+</button>
+                            )}
+                          </div>
+                        </td>
+                      );
+                    })}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        /* ── COMPACT DOT TABLE ── */
+        <div style={card({padding:0,overflow:"hidden"})}>
+          <div style={{overflowX:"auto"}}>
+            <table style={{width:"100%",borderCollapse:"collapse",minWidth:600}}>
+              <thead>
+                <tr style={{background:C.card2}}>
+                  <th style={{padding:"8px 12px",textAlign:"left",borderBottom:`1px solid ${C.border}`,width:52}}>
+                    <Mono size={9} color={C.text3} style={{textTransform:"uppercase",letterSpacing:".07em"}}>Wk</Mono>
+                  </th>
+                  <th style={{padding:"8px 8px",textAlign:"left",borderBottom:`1px solid ${C.border}`,width:75}}>
+                    <Mono size={9} color={C.text3} style={{textTransform:"uppercase"}}>Dates</Mono>
+                  </th>
+                  {DAYS.map(d=>(
+                    <th key={d} style={{padding:"8px 4px",textAlign:"center",borderBottom:`1px solid ${C.border}`}}>
+                      <Mono size={9} color={C.text3} style={{textTransform:"uppercase"}}>{d}</Mono>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {weeks.map(({wk,week,monday,endDate,assignments})=>{
+                  const isCurrent=wk===todayWk;
+                  return (
+                    <tr key={wk} style={{background:isCurrent?`${C.amber}08`:"transparent"}}>
+                      <td style={{padding:"6px 12px",borderBottom:`1px solid ${C.border}`}}>
+                        <Mono size={10} color={isCurrent?C.amber:C.text3} style={{fontWeight:isCurrent?700:400}}>{isCurrent?"▶":""}{`W${String(week).padStart(2,"0")}`}</Mono>
+                      </td>
+                      <td style={{padding:"6px 8px",borderBottom:`1px solid ${C.border}`}}>
+                        <Mono size={9} color={C.text3} style={{whiteSpace:"nowrap"}}>{fmtShort(monday)}–{fmtShort(endDate)}</Mono>
+                      </td>
+                      {DAYS.map(day=>{
+                        const dayA=assignments[day]||[];
+                        return (
+                          <td key={day} style={{padding:"5px 3px",textAlign:"center",borderBottom:`1px solid ${C.border}`}}>
+                            <div style={{display:"flex",justifyContent:"center",gap:3,flexWrap:"wrap"}}>
+                              {dayA.length===0
+                                ? <div style={{width:8,height:8,borderRadius:"50%",background:C.border}}/>
+                                : dayA.map((a,i)=>{
+                                    const u=users.find(u=>u.id===a.userId);
+                                    const r=ROUTES.find(r=>r.id===a.routeId);
+                                    return <div key={i} title={`${u?.name} – ${r?.name}`} style={{width:9,height:9,borderRadius:"50%",background:u?.color||C.blue,cursor:"default"}}/>;
+                                  })
+                              }
+                            </div>
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Edit modal */}
+      {editModal&&(
+        <Modal onClose={()=>setEditModal(null)} title={`Add Assignment – ${editModal.day} (Wk ${editModal.wk.split("-W")[1]})`}>
+          <div style={{display:"flex",flexDirection:"column",gap:11}}>
+            <div>
+              <label style={{display:"block",fontSize:10,color:C.text3,fontFamily:"'DM Mono',monospace",textTransform:"uppercase",letterSpacing:".07em",marginBottom:5}}>Person</label>
+              <select value={editForm.userId} onChange={e=>setEditForm(f=>({...f,userId:e.target.value}))} style={inp()}>
+                <option value="">— Select —</option>
+                {users.map(u=><option key={u.id} value={u.id}>{u.name} ({u.role})</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={{display:"block",fontSize:10,color:C.text3,fontFamily:"'DM Mono',monospace",textTransform:"uppercase",letterSpacing:".07em",marginBottom:5}}>Route</label>
+              <select value={editForm.routeId} onChange={e=>setEditForm(f=>({...f,routeId:e.target.value}))} style={inp()}>
+                <option value="">— Select —</option>
+                {ROUTES.map(r=><option key={r.id} value={r.id}>{r.name}</option>)}
+              </select>
+            </div>
+            <div style={{display:"flex",gap:7,justifyContent:"flex-end"}}>
+              <button onClick={()=>setEditModal(null)} style={btn("ghost")}>Cancel</button>
+              <button onClick={addEditAssign} disabled={!editForm.userId||!editForm.routeId} style={{...btn("pri"),opacity:(!editForm.userId||!editForm.routeId)?0.35:1}}>Add</button>
+            </div>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+// ─── SEED ROSTER ─────────────────────────────────────────────────────────────
+function seedRoster() {
+  const today=new Date(), wk=weekKey(today);
+  return {
+    [wk]:{
+      Mon:[{userId:"U001",routeId:"R01"},{userId:"U002",routeId:"R02"}],
+      Tue:[{userId:"U003",routeId:"R01"}],
+      Wed:[{userId:"U001",routeId:"R03"},{userId:"U002",routeId:"R04"}],
+      Thu:[{userId:"U003",routeId:"R02"}],
+      Fri:[{userId:"U001",routeId:"R01"},{userId:"U002",routeId:"R02"}],
+      Sat:[{userId:"U003",routeId:"R04"}],
+      Sun:[],
+    }
+  };
+}
+
+// ─── APP ROOT ─────────────────────────────────────────────────────────────────
+function App() {
+  const saved = LS.load("gpm_v4");
+  const [users]              = useState(saved?.users??SEED_USERS);
+  const [roster, setRoster]  = useState(saved?.roster??seedRoster());
+  const [insp,   setInsp]    = useState(saved?.insp??[]);
+  const [tracker,setTracker] = useState(saved?.tracker??[]);
+  const [view,   setView]    = useState("home");
+  const [isManager,setIsManager] = useState(false);
+
+  // Inspection flow
+  const [inspStep,   setInspStep]   = useState("select");
+  const [activeInsp, setActiveInsp] = useState(null);
+  const [zoneIdx,    setZoneIdx]    = useState(0);
+
+  useEffect(()=>{ LS.save("gpm_v4",{users,roster,insp,tracker}); },[users,roster,insp,tracker]);
+
+  const today = new Date();
+  const wk    = weekKey(today);
+  const dn    = dayOfWeekName(today);
+  const todayAssigns = roster[wk]?.[dn]??[];
+
+  const navTo = v => { setView(v); if(v!=="inspect") setInspStep("select"); };
+
+  const startInspection = (userId,routeId) => {
+    const route=ROUTES.find(r=>r.id===routeId); if(!route) return;
+    const zones=route.zoneIds.map(zid=>{
+      const zone=ZONES.find(z=>z.id===zid);
+      return {zoneId:zid,startTime:Date.now(),endTime:null,items:zone.items.map((label,i)=>({idx:i,label,status:"pending",observation:"",photos:[]}))};
+    });
+    setActiveInsp({id:genId(),userId,routeId,date:today.toISOString().split("T")[0],startTime:Date.now(),endTime:null,zones,reportSent:false});
+    setZoneIdx(0); setInspStep("zone");
+  };
+
+  const updateZoneItem = (zi,ii,upd) => {
+    setActiveInsp(prev=>({...prev,zones:prev.zones.map((z,zi2)=>zi2!==zi?z:{...z,items:z.items.map((it,ii2)=>ii2!==ii?it:{...it,...upd})})}));
+  };
+
+  const finishZone = () => {
+    const next=zoneIdx+1;
+    setActiveInsp(prev=>{
+      const zones=prev.zones.map((z,i)=>{ if(i===zoneIdx) return{...z,endTime:Date.now()}; if(i===next) return{...z,startTime:Date.now()}; return z; });
+      return {...prev,zones,endTime:next>=prev.zones.length?Date.now():null};
+    });
+    if(next<activeInsp.zones.length) setZoneIdx(next);
+    else setInspStep("summary");
+  };
+
+  const submitInspection = () => {
+    const rec={...activeInsp,reportSent:true};
+    setInsp(prev=>[...prev,rec]);
+    const issues=rec.zones.flatMap(z=>z.items.filter(i=>i.status==="flagged").map(item=>({
+      id:genId(),inspectionId:rec.id,zoneId:z.zoneId,zoneName:ZONES.find(zz=>zz.id===z.zoneId)?.name,
+      itemLabel:item.label,observation:item.observation,photos:item.photos,
+      status:"open",createdBy:rec.userId,createdAt:Date.now(),updatedAt:Date.now(),notes:[],
+    })));
+    if(issues.length) setTracker(prev=>[...prev,...issues]);
+    setActiveInsp(null); setInspStep("select"); setZoneIdx(0);
+    setView("tracker");
+  };
+
+  return (
+    <div style={{fontFamily:"'Syne',sans-serif",background:C.bg,minHeight:"100vh",color:C.text}}>
+      <NavBar view={view} setView={navTo} isManager={isManager} setIsManager={setIsManager}/>
+      <div style={{maxWidth:1140,margin:"0 auto",padding:"22px 14px 80px"}}>
+        {view==="home"    && <HomeView today={today} wk={wk} dn={dn} todayAssignments={todayAssigns} tracker={tracker} inspections={insp} users={users} setView={navTo} isManager={isManager} roster={roster} setRoster={setRoster}/>}
+        {view==="inspect" && <InspectView step={inspStep} users={users} todayAssignments={todayAssigns} activeInspection={activeInsp} activeZoneIdx={zoneIdx} startInspection={startInspection} updateZoneItem={updateZoneItem} finishZone={finishZone} submitInspection={submitInspection}/>}
+        {view==="tracker" && <TrackerView tracker={tracker} setTracker={setTracker} users={users}/>}
+        {view==="roster"  && <RosterView roster={roster} setRoster={setRoster} users={users} isManager={isManager} today={today}/>}
+        {view==="yearplan"&& <YearPlanView roster={roster} setRoster={setRoster} users={users} today={today} isManager={isManager}/>}
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(App));
+</script>
+</body>
+</html>
