@@ -76,7 +76,7 @@ const {useState,useEffect,useRef,useCallback,useReducer} = React;
 // e.g. "https://inspectpro-api.railway.app"
 const API_BASE = window.INSPECTPRO_API || "https://inspectpro-api.onrender.com";
 
-const VERSION = "v5.1.2";
+const VERSION = "v5.2.0";
 const DAYS = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
 const isAdminRole = role => role === "admin";
 const isManagerRole = role => role === "manager" || role === "admin";
@@ -129,7 +129,7 @@ const api = {
         signal: opts.signal,
       });
       const data = await res.json();
-      if(!res.ok) throw Object.assign(new Error(data.error||"Request failed"),{status:res.status,data});
+      if(!res.ok){if(res.status===401)window.dispatchEvent(new CustomEvent("ip_auth_expired"));throw Object.assign(new Error(data.error||"Request failed"),{status:res.status,data});}
       return data;
     }catch(e){
       if(e.name==="AbortError") throw e;
@@ -213,7 +213,7 @@ async function buildEmailContent(rec, users, zones) {
     const obs  = item.observation ? ` → ${item.observation}` : '';
     lines.push(`  [${icon}] ${item.label}${obs}`);
   });
-  lines.push('', 'InspectPro v4 · Property Inspection Management');
+  lines.push('', 'InspectPro '+VERSION+' · Property Inspection Management');
   const plainText = lines.join('\n');
 
   // HTML email
@@ -287,7 +287,7 @@ async function buildEmailContent(rec, users, zones) {
     ${checklistHtml}
   </td></tr>
   <tr><td style="background:#f9fafb;padding:12px 24px;border-top:1px solid #e5e7eb;text-align:center;">
-    <span style="font-size:11px;color:#9ca3af;">InspectPro v4 · ${fD(startTs)}</span>
+    <span style="font-size:11px;color:#9ca3af;">InspectPro ${VERSION} · ${fD(startTs)}</span>
   </td></tr>
 </table>
 </td></tr></table>
@@ -379,7 +379,7 @@ function AutoPlanModal({users,zones,onClose,today,onApplied}) {
   const [startDate,setStartDate] = useState(()=>{
     const d=getMon(today);d.setDate(d.getDate()+7);return d.toISOString().split("T")[0];
   });
-  const weeksLeft = Math.max(1, Math.ceil((new Date("2026-12-28T00:00:00") - getMon(today)) / (7*86400000)));
+  const weeksLeft = Math.max(1, Math.ceil((new Date(today.getFullYear(),11,28) - getMon(today)) / (7*86400000)));
   const [numWeeks,setNumWeeks]   = useState(weeksLeft);
   const [selInsp,setSelInsp]     = useState(inspectors.map(u=>u.id));
   const [selZones,setSelZones]   = useState(zones.slice(0,5).map(z=>z.id));
@@ -437,7 +437,7 @@ function AutoPlanModal({users,zones,onClose,today,onApplied}) {
           <div><Lbl>Starting Week</Lbl><input type="date" value={startDate} onChange={e=>setStartDate(e.target.value)} style={C.inp()}/></div>
           <div><Lbl>Duration</Lbl>
             <select value={numWeeks} onChange={e=>setNumWeeks(Number(e.target.value))} style={C.inp()}>
-              {[4,8,12,26,weeksLeft].filter((n,i,a)=>n>0&&a.indexOf(n)===i).map(n=><option key={n} value={n}>{n} wk{n===weeksLeft?" (rest of 2026)":n===4?" (1 mo)":n===12?" (3 mo)":n===26?" (6 mo)":""}</option>)}
+              {[4,8,12,26,weeksLeft].filter((n,i,a)=>n>0&&a.indexOf(n)===i).map(n=><option key={n} value={n}>{n} wk{n===weeksLeft?" (rest of yr)":n===4?" (1 mo)":n===12?" (3 mo)":n===26?" (6 mo)":""}</option>)}
             </select>
           </div>
         </div>
@@ -512,6 +512,44 @@ const Badge=({status})=>{
 const Spinner=({size=16})=><span style={{width:size,height:size,border:"2px solid var(--bd2)",borderTopColor:"var(--amber)",borderRadius:"50%",animation:"spin .8s linear infinite",display:"inline-block",flexShrink:0}}/>;
 const ErrBox=({msg})=>msg?<div style={{padding:"9px 13px",borderRadius:8,fontSize:13,background:"var(--op-bg)",color:"var(--op-fg)",marginBottom:10}}>{msg}</div>:null;
 
+// ── TOAST SYSTEM ──────────────────────────────────────────────────────────────
+let _toastId=0;const _toastCbs=[];
+function showToast(msg,type="info"){
+  const id=++_toastId;
+  _toastCbs.forEach(fn=>fn({id,msg,type}));
+  setTimeout(()=>_toastCbs.forEach(fn=>fn({id,remove:true})),3500);
+}
+function ToastHost(){
+  const [toasts,setToasts]=useState([]);
+  useEffect(()=>{
+    const fn=t=>{if(t.remove)setToasts(p=>p.filter(x=>x.id!==t.id));else setToasts(p=>[...p,t]);};
+    _toastCbs.push(fn);return()=>{const i=_toastCbs.indexOf(fn);if(i>=0)_toastCbs.splice(i,1);};
+  },[]);
+  if(!toasts.length)return null;
+  return <div style={{position:"fixed",bottom:88,left:"50%",transform:"translateX(-50%)",zIndex:900,display:"flex",flexDirection:"column",gap:6,alignItems:"center",pointerEvents:"none"}}>
+    {toasts.map(t=><div key={t.id} style={{background:t.type==="err"?"#dc2626":t.type==="ok"?"#059669":"#1e293b",color:"#fff",padding:"9px 18px",borderRadius:9,fontSize:13,fontWeight:500,boxShadow:"0 4px 14px rgba(0,0,0,.35)",whiteSpace:"nowrap",maxWidth:320,textAlign:"center"}}>{t.msg}</div>)}
+  </div>;
+}
+
+// ── CONFIRM HOST ──────────────────────────────────────────────────────────────
+let _confirmResolve=null;let _confirmSetState=null;
+function showConfirm(msg){return new Promise(res=>{_confirmResolve=res;if(_confirmSetState)_confirmSetState({open:true,msg});});}
+function ConfirmHost(){
+  const [state,setState]=useState({open:false,msg:""});
+  useEffect(()=>{_confirmSetState=setState;return()=>{_confirmSetState=null;};},[]);
+  if(!state.open)return null;
+  const go=v=>{setState({open:false,msg:""});if(_confirmResolve){_confirmResolve(v);_confirmResolve=null;}};
+  return <div onClick={e=>{if(e.target===e.currentTarget)go(false);}} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.6)",backdropFilter:"blur(4px)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:800,padding:16}}>
+    <div style={{...C.card({background:"var(--card2)",boxShadow:"var(--shad)"}),maxWidth:320,width:"100%"}}>
+      <div style={{fontSize:14,color:"var(--t1)",marginBottom:20,lineHeight:1.5}}>{state.msg}</div>
+      <div style={{display:"flex",gap:9,justifyContent:"flex-end"}}>
+        <button onClick={()=>go(false)} style={C.btn("sec",{padding:"8px 16px"})}>Cancel</button>
+        <button onClick={()=>go(true)} style={C.btn("pri",{padding:"8px 16px"})}>Confirm</button>
+      </div>
+    </div>
+  </div>;
+}
+
 function Modal({onClose,title,children,maxW=440}){
   useEffect(()=>{const h=e=>{if(e.key==="Escape")onClose();};document.addEventListener("keydown",h);return()=>document.removeEventListener("keydown",h);},[onClose]);
   return <div onClick={e=>e.target===e.currentTarget&&onClose()} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.72)",backdropFilter:"blur(5px)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:400,padding:16}}>
@@ -554,7 +592,7 @@ function PinPad({onComplete,label,error,digits:extDigits,setDigits:extSet}){
 
 // ── LOGIN MODAL ───────────────────────────────────────────────────────────────
 function LoginModal({users,onLogin,onClose}){
-  const loginUsers=rosterPeople(users);
+  const loginUsers=[...users].sort((a,b)=>a.name.localeCompare(b.name));
   const [selId,setSelId]=useState("");
   const [step,setStep]=useState("pick");
   const [err,setErr]=useState("");
@@ -587,7 +625,7 @@ function LoginModal({users,onLogin,onClose}){
               <option value="">— Select your name —</option>
               {loginUsers.map(u=><option key={u.id} value={u.id}>{u.name} ({u.role})</option>)}
             </select>
-            <p style={{fontSize:13,color:"var(--t3)",marginTop:-6,marginBottom:14,lineHeight:1.45}}>Active inspection team: 3 inspectors + 2 manager/admin users.</p>
+            <p style={{fontSize:13,color:"var(--t3)",marginTop:-6,marginBottom:14,lineHeight:1.45}}>{loginUsers.length} team member{loginUsers.length!==1?"s":""} · select your name to continue</p>
             {selId&&<div style={{display:"flex",alignItems:"center",gap:10,padding:"11px 13px",background:"var(--surf)",borderRadius:9,border:"1px solid var(--bd)",marginBottom:14}}>
               <Avatar user={user} size={40}/>
               <div><div style={{fontWeight:600,fontSize:15,color:"var(--t1)"}}>{user.name}</div><Mono size={12}>{user.role.toUpperCase()} · {user.id}</Mono></div>
@@ -789,8 +827,29 @@ function InspectView({authUser,zones,users,today,ejConfig,tgConfig}){
     setSending(true);setErr("");
     try{
       const endTime=new Date().toISOString();
-      await api.put(`/api/inspections/${activeInsp.id}/complete`,{endTime});
-      setActiveInsp(null);setStep("select");
+      const completed=await api.put(`/api/inspections/${activeInsp.id}/complete`,{endTime});
+      // Send notifications in background — don't block the UI
+      const detail=completed||activeInsp;
+      (async()=>{
+        try{
+          const cfg=await api.get("/api/config");
+          const content=await buildEmailContent(detail,users,zones);
+          const inspector=users.find(u=>u.id===detail.user_id);
+          const subj="InspectPro Report – "+(inspector?.name||detail.user_name||"")+" – "+fD(detail.start_time);
+          const targets=[];
+          if(inspector?.email?.trim())targets.push({email:inspector.email.trim(),name:inspector.name,subj});
+          users.filter(u=>isManagerRole(u.role)&&u.email?.trim()).forEach(m=>{if(!targets.find(t=>t.email===m.email.trim()))targets.push({email:m.email.trim(),name:m.name,subj:"[InspectPro] "+subj});});
+          if(targets.length>0){
+            const results=await Promise.allSettled(targets.map(t=>sendEmail(t.email,t.name,t.subj,content,cfg)));
+            const ok=results.filter(r=>r.status==="fulfilled"&&r.value?.ok).length;
+            if(ok>0)showToast("Report emailed ✓","ok");
+          }
+          const flagCount=(detail.items||[]).filter(i=>i.status==="flagged").length;
+          const tgMsg="Inspection complete: "+(detail.zone_name||detail.zone_id)+" · "+(inspector?.name||"")+(flagCount?" · "+flagCount+" flag"+( flagCount>1?"s":""):" · All clear");
+          await notifyTelegram("InspectPro",tgMsg,cfg);
+        }catch(ex){console.warn("[notify]",ex);}
+      })();
+      setActiveInsp(null);setStep("done");
     }catch(e){setErr("Submit failed: "+e.message);}
     setSending(false);
   };
@@ -806,6 +865,12 @@ function InspectView({authUser,zones,users,today,ejConfig,tgConfig}){
     {step==="select"&&<SelectStep zones={zones} users={users} authUser={authUser} today={today} onStart={startInspection}/>}
     {step==="zone"&&activeInsp&&<ZoneStep inspection={activeInsp} updateItem={updateItem} addMedia={addMediaToItem} removeMedia={removeMediaFromItem} onFinish={finishZone} users={users}/>}
     {step==="summary"&&activeInsp&&<SummaryStep inspection={activeInsp} users={users} zones={zones} onSubmit={submitInspection} sending={sending}/>}
+    {step==="done"&&<div style={{maxWidth:480,margin:"60px auto",textAlign:"center",padding:"0 16px"}}>
+      <div style={{fontSize:52,marginBottom:14}}>✅</div>
+      <h2 style={{fontSize:22,fontWeight:700,color:"var(--t1)",marginBottom:8}}>Inspection Submitted</h2>
+      <p style={{color:"var(--t2)",fontSize:15,marginBottom:28}}>Report sent to the team. Good work!</p>
+      <button onClick={()=>setStep("select")} style={C.btn("pri",{padding:"12px 28px",fontSize:15})}>New Inspection</button>
+    </div>}
   </div>;
 }
 
@@ -899,7 +964,7 @@ function ZoneStep({inspection,updateItem,addMedia,removeMedia,onFinish,users}){
         thumbnailUrl:ik.thumbnailUrl,size:ik.size,name:ik.name,
       });
       addMedia(itemId,saved);
-    }catch(e){alert("Photo upload failed: "+e.message);}
+    }catch(e){showToast("Photo upload failed: "+e.message,"err");}
   };
 
   const handleVideo=async(itemId,file)=>{
@@ -911,12 +976,12 @@ function ZoneStep({inspection,updateItem,addMedia,removeMedia,onFinish,users}){
         thumbnailUrl:ik.thumbnailUrl,size:ik.size,name:ik.name,
       });
       addMedia(itemId,saved);
-    }catch(e){alert("Video upload failed: "+e.message);}
+    }catch(e){showToast("Video upload failed: "+e.message,"err");}
   };
 
   const delMedia=async(itemId,mediaId)=>{
     try{await api.delete(`/api/media/${mediaId}`);removeMedia(itemId,mediaId);}
-    catch(e){alert("Delete failed: "+e.message);}
+    catch(e){showToast("Delete failed: "+e.message,"err");}
   };
 
   return <div style={{maxWidth:680,margin:"0 auto"}} className="fu">
@@ -1036,7 +1101,7 @@ function VideoCapture({onCapture}){
   const mobileRef=useRef(null);const desktopRef=useRef(null);
   const isMobile=('ontouchstart' in window)||(navigator.maxTouchPoints>0);
 
-  const onFile=async f=>{if(!f)return;setSaving(true);try{await onCapture(f);}catch(e){alert("Video upload failed: "+e.message);}setSaving(false);};
+  const onFile=async f=>{if(!f)return;setSaving(true);try{await onCapture(f);}catch(e){showToast("Video upload failed: "+e.message,"err");}setSaving(false);};
   const startDesktop=async()=>{
     try{
       const mimes=["video/mp4;codecs=avc1","video/webm;codecs=vp9","video/webm","video/mp4"];
@@ -1168,7 +1233,7 @@ function TrackerItem({item,expanded,onToggle,onUpdateStatus,onNotePosted,authUse
       setNotes(p=>[...(p||[]),n]);
       setNote("");
       onNotePosted?.(item.id); // bump parent note_count badge
-    }catch(e){alert("Could not post note: "+e.message);}
+    }catch(e){showToast("Could not post note: "+e.message,"err");}
   };
 
   const media=item.media||[];
@@ -1282,7 +1347,7 @@ function RosterView({users,zones,authUser,today}){
     try{
       await api.put("/api/roster",{weekKey:wk,slots:allSlots});
       await load();setEditCell(null);
-    }catch(e){alert("Save failed: "+e.message);}
+    }catch(e){showToast("Save failed: "+e.message,"err");}
   };
 
   const deleteSlot=async(slotId)=>{
@@ -1294,7 +1359,7 @@ function RosterView({users,zones,authUser,today}){
       }
     }
     try{await api.put("/api/roster",{weekKey:wk,slots:allSlots});await load();}
-    catch(e){alert("Delete failed: "+e.message);}
+    catch(e){showToast("Delete failed: "+e.message,"err");}
   };
 
   const quickAssign=async(day,zoneId,inspectorId=pickedInspector)=>{
@@ -1308,7 +1373,7 @@ function RosterView({users,zones,authUser,today}){
     }
     allSlots.push({day,zoneId,inspectorIds:[inspectorId],supervisorIds:[]});
     try{await api.put("/api/roster",{weekKey:wk,slots:allSlots});await load();}
-    catch(e){alert("Assign failed: "+e.message);}
+    catch(e){showToast("Assign failed: "+e.message,"err");}
   };
 
   const toggleId=(arr,id)=>arr.includes(id)?arr.filter(x=>x!==id):[...arr,id];
@@ -1496,7 +1561,7 @@ function YearPlanView({users,zones,today,authUser}){
 // ── REPORTS VIEW ──────────────────────────────────────────────────────────────
 function ReportsView({users,zones,authUser}){
   const [inspections,setInspections]=useState([]);
-  const [reportMonth,setReportMonth]=useState("2026-03");
+  const [reportMonth,setReportMonth]=useState(new Date().toISOString().slice(0,7));
   const [monthly,setMonthly]=useState(null);
   const [monthlyLoading,setMonthlyLoading]=useState(false);
   const [loading,setLoading]=useState(true);
@@ -1527,7 +1592,7 @@ function ReportsView({users,zones,authUser}){
   const resend=async(rec,e)=>{
     e.stopPropagation();
     if(!selDetail) return;
-    if(!window.confirm("Re-send this inspection report by email?"))return;
+    if(!await showConfirm("Re-send this inspection report by email?"))return;
     setResending(rec.id);setResendMsg("");
     try{
       const cfg=await api.get("/api/config");
@@ -1733,7 +1798,7 @@ function AdminPanel({authUser,users,setUsers,zones,setZones,onClose,ejConfig,set
     catch(e){setUserErr(e.message);}
   };
   const removeUser=async id=>{
-    if(!window.confirm("Remove this team member?"))return;
+    if(!await showConfirm("Remove this team member?"))return;
     try{await api.delete(`/api/users/${id}`);setUsers(p=>p.filter(u=>u.id!==id));}
     catch(e){setUserErr(e.message);}
   };
@@ -1743,8 +1808,8 @@ function AdminPanel({authUser,users,setUsers,zones,setZones,onClose,ejConfig,set
     catch(e){setUserErr(e.message);}
   };
   const resetPin=async id=>{
-    try{await api.post("/api/auth/reset-pin",{targetUserId:id});alert("PIN reset to 123456");}
-    catch(e){alert("Reset failed: "+e.message);}
+    try{await api.post("/api/auth/reset-pin",{targetUserId:id});showToast("PIN reset to 123456","ok");}
+    catch(e){showToast("Reset failed: "+e.message,"err");}
   };
 
   // Zones + checklist
@@ -1760,9 +1825,9 @@ function AdminPanel({authUser,users,setUsers,zones,setZones,onClose,ejConfig,set
     return {...z,items};
   }));
   const addZone=()=>setZoneDraft(p=>[...p,{id:`Z${String(p.length+1).padStart(2,"0")}`,name:"New Zone",items:["General condition OK"],displayOrder:p.length+1}]);
-  const removeZone=(zIdx)=>{
+  const removeZone=async(zIdx)=>{
     const z=zoneDraft[zIdx];
-    if(!window.confirm(`Remove ${z.id} · ${z.name} from active zones? Historical reports will remain available.`))return;
+    if(!await showConfirm("Remove "+z.id+" · "+z.name+" from active zones? Historical reports will remain available."))return;
     setZoneDraft(p=>p.filter((_,i)=>i!==zIdx));
   };
   const saveZones=async()=>{
@@ -1782,7 +1847,7 @@ function AdminPanel({authUser,users,setUsers,zones,setZones,onClose,ejConfig,set
   const testEj=async()=>{
     const to=authUser.email?.trim();
     if(!to){setEjMsg("⚠ Add an email address to your admin user first.");return;}
-    if(!window.confirm(`Send a test email to ${to}?`))return;
+    if(!await showConfirm("Send a test email to "+to+"?"))return;
     setEjMsg("Sending test email…");
     const res=await sendEmail(to,authUser.name,"InspectPro test email",{plainText:"InspectPro EmailJS test message.",html:"<p>InspectPro EmailJS test message.</p>"},ej);
     setEjMsg(res.ok?"✅ Test email sent.":`❌ Test email failed: ${res.err||"check config"}`);
@@ -1793,7 +1858,7 @@ function AdminPanel({authUser,users,setUsers,zones,setZones,onClose,ejConfig,set
   const saveTg=async()=>{try{await api.put("/api/config",{tgBotToken:tg.tgBotToken,tgChatId:tg.tgChatId});setTgConfig(tg);setTgMsg("✅ Saved.");}catch(e){setTgMsg("❌ "+e.message);}};
   const testTg=async()=>{
     if(!tg.tgBotToken||!tg.tgChatId){setTgMsg("⚠ Bot token and chat ID are required.");return;}
-    if(!window.confirm("Send a test Telegram message to the configured chat?"))return;
+    if(!await showConfirm("Send a test Telegram message to the configured chat?"))return;
     setTgMsg("Sending test Telegram…");
     const res=await notifyTelegram("InspectPro test",`Sent by ${authUser.name} from Admin settings.`,tg);
     setTgMsg(res.ok?"✅ Test Telegram sent.":`❌ Test Telegram failed: ${res.err||"check config"}`);
@@ -1806,7 +1871,7 @@ function AdminPanel({authUser,users,setUsers,zones,setZones,onClose,ejConfig,set
   const [resetBusy,setResetBusy]=useState(false);
   const runPilotReset=async()=>{
     if(resetText!=="WIPE"){setResetMsg("Type WIPE to confirm.");return;}
-    if(!window.confirm("Clear selected pilot data now? Team members and notification settings will remain."))return;
+    if(!await showConfirm("Clear selected pilot data now? Team members and notification settings will remain."))return;
     setResetBusy(true);setResetMsg("Clearing selected data…");
     try{
       const res=await api.post("/api/config/pilot-reset",{confirm:resetText,...resetOpts});
@@ -1995,6 +2060,13 @@ function App(){
     return()=>{window.removeEventListener("online",on);window.removeEventListener("offline",off);};
   },[]);
 
+  // JWT expired — auto-logout
+  useEffect(()=>{
+    const handler=()=>{setAuthUser(null);localStorage.removeItem("ip_v4_token");setView("home");setShowLogin(true);showToast("Session expired — please sign in again","err");};
+    window.addEventListener("ip_auth_expired",handler);
+    return()=>window.removeEventListener("ip_auth_expired",handler);
+  },[]);
+
   // Bootstrap: load users + zones on mount
   useEffect(()=>{
     async function bootstrap(){
@@ -2020,7 +2092,7 @@ function App(){
   };
 
   return <div style={{fontFamily:"'DM Sans',sans-serif",background:"var(--bg)",minHeight:"100vh",color:"var(--t1)",transition:"background .25s"}}>
-    {!isOnline&&<div className="offline-bar">⚠ You're offline — data will sync when reconnected</div>}
+    {!isOnline&&<div className="offline-bar">⚠ No internet connection — app requires a live connection</div>}
     <div style={{marginTop:!isOnline?32:0}}>
       <NavBar view={view} nav={nav} authUser={authUser} onSignIn={()=>setShowLogin(true)} onSignOut={handleLogout} theme={theme} setTheme={setTheme} onAdmin={()=>authUser?setShowAdmin(true):setShowLogin(true)}/>
       <div className="main-pad" style={{maxWidth:1140,margin:"0 auto"}}>
@@ -2037,6 +2109,8 @@ function App(){
     {!authUser&&<div onClick={()=>setShowLogin(true)} style={{position:"fixed",bottom:"calc(72px + env(safe-area-inset-bottom,0px))",right:18,background:"var(--amber)",color:"#fff",fontWeight:600,fontSize:14,padding:"11px 20px",borderRadius:40,cursor:"pointer",boxShadow:"0 4px 20px rgba(0,0,0,.35)",display:"flex",alignItems:"center",gap:7,zIndex:100}}>🔑 Log In</div>}
     {showLogin&&<LoginModal users={users} onLogin={handleLogin} onClose={()=>setShowLogin(false)}/>}
     {showAdmin&&authUser&&<AdminPanel authUser={authUser} users={users} setUsers={setUsers} zones={zones} setZones={setZones} ejConfig={ejConfig} setEjConfig={setEjConfig} tgConfig={tgConfig} setTgConfig={setTgConfig} onClose={()=>setShowAdmin(false)}/>}
+    <ToastHost/>
+    <ConfirmHost/>
   </div>;
 }
 
