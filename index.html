@@ -76,18 +76,17 @@ const {useState,useEffect,useRef,useCallback,useReducer} = React;
 // e.g. "https://inspectpro-api.railway.app"
 const API_BASE = window.INSPECTPRO_API || "https://inspectpro-api.onrender.com";
 
-const VERSION = "v5.2.0";
+const VERSION = "v5.2.1";
 const DAYS = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
 const isAdminRole = role => role === "admin";
 const isManagerRole = role => role === "manager" || role === "admin";
 const canManageConfig = user => isAdminRole(user?.role);
 const canManageOps = user => isManagerRole(user?.role);
 const canInspect = user => ["inspector","manager","admin"].includes(user?.role);
-const rosterPeople = users => {
-  const managers = users.filter(u=>isManagerRole(u.role));
-  const inspectors = users.filter(u=>u.role==="inspector");
-  return [...inspectors.slice(0, Math.max(0, 5-managers.length)), ...managers].slice(0,5);
-};
+const rosterPeople = users => [...users].sort((a,b)=>{
+  const r={inspector:0,manager:1,admin:2};
+  return (r[a.role]??0)-(r[b.role]??0)||a.name.localeCompare(b.name);
+});
 const weekSlots = rosterData => rosterData?.Week || rosterData?.Any || [];
 const assignmentSlots = (rosterData, day) => [...weekSlots(rosterData), ...(rosterData?.[day] || [])];
 const completionKey = (userId, zoneId) => `${userId}|${zoneId}`;
@@ -725,7 +724,7 @@ function HomeView({today,authUser,users,zones,nav,isOnline}){
       <div>
         <Mono size={12} color="var(--t3)" style={{textTransform:"uppercase",letterSpacing:".08em",display:"block",marginBottom:4}}>{fD(today)} · {dn} · Week {week}</Mono>
         <h1 style={{fontSize:26,letterSpacing:"-.02em",marginBottom:4}}>{today.getHours()<12?"Good Morning":"Good Afternoon"} 👋</h1>
-        <p style={{color:"var(--t2)",fontSize:15}}>{activeInspectors} inspectors · {activeOps} manager/admin inspectors · {zones.length} zones</p>
+        <p style={{color:"var(--t2)",fontSize:15}}>{activeInspectors} inspector{activeInspectors!==1?"s":""} · {activeOps} manager/admin{activeOps!==1?"s":""} · {zones.length} zone{zones.length!==1?"s":""}</p>
       </div>
       {authUser&&<button onClick={()=>nav("inspect")} style={C.btn("pri",{padding:"11px 22px",fontSize:15,display:"flex",alignItems:"center",gap:8})}>▶ Start Inspection</button>}
     </div>
@@ -822,6 +821,10 @@ function InspectView({authUser,zones,users,today,ejConfig,tgConfig}){
   };
 
   const finishZone=()=>setStep("summary");
+  const cancelInspection=async()=>{
+    if(!await showConfirm("Cancel this inspection? It will remain open and can be resumed later."))return;
+    setActiveInsp(null);setStep("select");
+  };
 
   const submitInspection=async()=>{
     setSending(true);setErr("");
@@ -863,7 +866,7 @@ function InspectView({authUser,zones,users,today,ejConfig,tgConfig}){
   return <div>
     {err&&<ErrBox msg={err}/>}
     {step==="select"&&<SelectStep zones={zones} users={users} authUser={authUser} today={today} onStart={startInspection}/>}
-    {step==="zone"&&activeInsp&&<ZoneStep inspection={activeInsp} updateItem={updateItem} addMedia={addMediaToItem} removeMedia={removeMediaFromItem} onFinish={finishZone} users={users}/>}
+    {step==="zone"&&activeInsp&&<ZoneStep inspection={activeInsp} updateItem={updateItem} addMedia={addMediaToItem} removeMedia={removeMediaFromItem} onFinish={finishZone} onCancel={cancelInspection} users={users}/>}
     {step==="summary"&&activeInsp&&<SummaryStep inspection={activeInsp} users={users} zones={zones} onSubmit={submitInspection} sending={sending}/>}
     {step==="done"&&<div style={{maxWidth:480,margin:"60px auto",textAlign:"center",padding:"0 16px"}}>
       <div style={{fontSize:52,marginBottom:14}}>✅</div>
@@ -934,16 +937,17 @@ function SelectStep({zones,users,authUser,today,onStart}){
   </div>;
 }
 
-function ZoneStep({inspection,updateItem,addMedia,removeMedia,onFinish,users}){
+function ZoneStep({inspection,updateItem,addMedia,removeMedia,onFinish,onCancel,users}){
   const zone={id:inspection.zone_id,name:inspection.zone_name};
   const user=users.find(u=>u.id===inspection.user_id);
   const items=inspection.items||[];
   const allDone=items.every(i=>i.status!=="pending");
   const photoRefs=useRef({});
-  // Local observation state — debounced API calls so we don't hit the API on every keystroke
   const [obsMap,setObsMap]=useState(()=>Object.fromEntries((inspection.items||[]).map(it=>[it.id,it.observation||""])));
   const obsTimers=useRef({});
   const [lightbox,setLightbox]=useState(null);
+  const [expandedOk,setExpandedOk]=useState(new Set());
+  const toggleExpand=id=>setExpandedOk(s=>{const n=new Set(s);n.has(id)?n.delete(id):n.add(id);return n;});
   const openLightbox=(items,idx=0)=>setLightbox({items,idx});
   const handleObsChange=(itemId,value)=>{
     setObsMap(p=>({...p,[itemId]:value}));
@@ -1002,8 +1006,9 @@ function ZoneStep({inspection,updateItem,addMedia,removeMedia,onFinish,users}){
       <div style={{width:46,height:46,background:"var(--bbg)",border:"1px solid var(--blue)33",borderRadius:9,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
         <Mono size={13} color="var(--blue)">{zone?.id}</Mono>
       </div>
-      <div><h2 style={{fontSize:17,marginBottom:2,color:"var(--t1)"}}>{zone?.name}</h2>
+      <div style={{flex:1}}><h2 style={{fontSize:17,marginBottom:2,color:"var(--t1)"}}>{zone?.name}</h2>
       <Mono size={12}>Started {fT(inspection.start_time)}</Mono></div>
+      {onCancel&&<button onClick={onCancel} style={C.btn("ghost",{padding:"6px 12px",fontSize:13,color:"var(--t3)"})}>✕ Cancel</button>}
     </div>
 
     <div style={{display:"flex",flexDirection:"column",gap:7,marginBottom:16}}>
@@ -1016,14 +1021,18 @@ function ZoneStep({inspection,updateItem,addMedia,removeMedia,onFinish,users}){
               <button onClick={()=>updateItem(item.id,{status:item.status==="flagged"?"pending":"flagged"})} style={{width:32,height:32,borderRadius:7,cursor:"pointer",fontSize:14,border:`1px solid ${item.status==="flagged"?"var(--red)":"var(--bd2)"}`,background:item.status==="flagged"?"var(--red)":"transparent",color:item.status==="flagged"?"#fff":"var(--t3)",display:"flex",alignItems:"center",justifyContent:"center",transition:"all .15s"}} title="Flag">!</button>
             </div>
             <div style={{flex:1}}>
-              <div style={{fontSize:15,fontWeight:600,color:"var(--t1)",lineHeight:1.4}}>{item.label}</div>
-              {item.status!=="pending"&&<textarea
+              <div style={{display:"flex",alignItems:"center",gap:8}}>
+                <div style={{fontSize:15,fontWeight:600,color:"var(--t1)",lineHeight:1.4,flex:1}}>{item.label}</div>
+                {item.status==="ok"&&<button onClick={()=>toggleExpand(item.id)} style={C.btn("ghost",{padding:"3px 9px",fontSize:12,color:"var(--t3)",flexShrink:0})}>{expandedOk.has(item.id)?"▲ Hide":"▼ Notes"}</button>}
+              </div>
+              {(item.status==="flagged"||(item.status==="ok"&&expandedOk.has(item.id)))&&<textarea
                 placeholder={item.status==="ok"?"Optional notes…":"Describe the issue…"}
                 value={obsMap[item.id]??item.observation??""}
                 onChange={e=>handleObsChange(item.id,e.target.value)}
                 style={C.inp({marginTop:8,height:56,fontSize:13})}
+                autoFocus={item.status==="flagged"}
               />}
-              {item.status!=="pending"&&<div style={{marginTop:8,display:"flex",gap:7,alignItems:"center",flexWrap:"wrap"}}>
+              {(item.status==="flagged"||(item.status==="ok"&&expandedOk.has(item.id)))&&<div style={{marginTop:8,display:"flex",gap:7,alignItems:"center",flexWrap:"wrap"}}>
                 <button onClick={()=>photoRefs.current[item.id]?.click()} style={C.btn("ghost",{padding:"5px 10px",fontSize:12})}>
                   📷 Photo{media.filter(m=>m.type==="photo").length>0?` (${media.filter(m=>m.type==="photo").length})`:""}</button>
                 <input type="file" accept="image/*" capture="environment" style={{display:"none"}} ref={el=>photoRefs.current[item.id]=el} onChange={e=>handlePhoto(item.id,e)}/>
@@ -1047,11 +1056,13 @@ function ZoneStep({inspection,updateItem,addMedia,removeMedia,onFinish,users}){
         </div>;
       })}
     </div>
-    <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:6}}>
-      <button onClick={onFinish} disabled={!allDone} style={{...C.btn("pri",{padding:"12px 26px",fontSize:15}),opacity:allDone?1:0.35}}>
+    <div style={{position:"sticky",bottom:0,background:"var(--bg)",borderTop:"1px solid var(--bd)",padding:"12px 0 16px",display:"flex",alignItems:"center",justifyContent:"space-between",zIndex:50,marginTop:4}}>
+      {!allDone
+        ?<Mono size={12} color="var(--t3)">{items.filter(i=>i.status==="pending").length} item{items.filter(i=>i.status==="pending").length!==1?"s":""} left</Mono>
+        :<Mono size={12} color="var(--green)">All done ✓</Mono>}
+      <button onClick={onFinish} disabled={!allDone} style={{...C.btn("pri",{padding:"12px 28px",fontSize:15}),opacity:allDone?1:0.35}}>
         Complete ✓
       </button>
-      {!allDone&&<Mono size={12}>Mark all items (✓ or !) before proceeding.</Mono>}
     </div>
     {lightbox&&<Lightbox items={lightbox.items} startIdx={lightbox.idx} onClose={()=>setLightbox(null)}/>}
   </div>;
@@ -1072,7 +1083,7 @@ function SummaryStep({inspection,users,zones,onSubmit,sending}){
     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:14}}>
       {[
         {l:"Inspector",v:<div style={{display:"flex",alignItems:"center",gap:7}}><Avatar user={user} size={26}/><span style={{fontSize:14,fontWeight:600,color:"var(--t1)"}}>{user?.name}</span></div>},
-        {l:"Zone",v:<span style={{fontSize:16,fontWeight:600,color:"var(--cyan)"}}>{zone?.id}</span>},
+        {l:"Zone",v:<span style={{fontSize:14,fontWeight:600,color:"var(--cyan)"}}>{zone?.id}{zone?.name?" · "+zone.name:""}</span>},
         {l:"Items OK",v:<span style={{fontSize:24,fontWeight:600,color:"var(--green)",fontFamily:"'DM Mono',monospace"}}>{ok.length}</span>},
         {l:"Flagged",v:<span style={{fontSize:24,fontWeight:600,color:flagged.length?"var(--red)":"var(--green)",fontFamily:"'DM Mono',monospace"}}>{flagged.length}</span>},
       ].map(s=><div key={s.l} style={C.card({padding:"12px 14px"})}>
