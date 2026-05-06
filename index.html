@@ -116,6 +116,7 @@ const LS     = {load:k=>{try{const d=localStorage.getItem(k);return d?JSON.parse
 // ── API CLIENT ────────────────────────────────────────────────────────────────
 const api = {
   _token: ()=>LS.load("ip_v4_token")||"",
+  _authExpiredNotified: false,
 
   async req(method, path, body, opts={}){
     const headers = {"Content-Type":"application/json"};
@@ -128,7 +129,13 @@ const api = {
         signal: opts.signal,
       });
       const data = await res.json();
-      if(!res.ok){if(res.status===401)window.dispatchEvent(new CustomEvent("ip_auth_expired"));throw Object.assign(new Error(data.error||"Request failed"),{status:res.status,data});}
+      if(!res.ok){
+        if(res.status===401&&token&&!this._authExpiredNotified){
+          this._authExpiredNotified=true;
+          window.dispatchEvent(new CustomEvent("ip_auth_expired"));
+        }
+        throw Object.assign(new Error(data.error||"Request failed"),{status:res.status,data});
+      }
       return data;
     }catch(e){
       if(e.name==="AbortError") throw e;
@@ -140,6 +147,7 @@ const api = {
   put:    (path,body,opts)=>api.req("PUT",path,body,opts),
   patch:  (path,body,opts)=>api.req("PATCH",path,body,opts),
   delete: (path,opts)=>api.req("DELETE",path,null,opts),
+  resetAuthExpired: ()=>{api._authExpiredNotified=false;},
   async uploadForm(path, form, opts={}){
     const headers = {};
     const token = this._token();
@@ -603,6 +611,7 @@ function LoginModal({users,onLogin,onClose}){
     try{
       const res=await api.post("/api/auth/login",{userId:user.id,pin});
       LS.save("ip_v4_token",res.token);
+      api.resetAuthExpired();
       onLogin(res.user);
     }catch(e){
       setErr(e.status===401?"Incorrect PIN.":"Server error. Try again.");
@@ -700,6 +709,12 @@ function HomeView({today,authUser,users,zones,nav,isOnline}){
   const activeOps=activeTeam.filter(u=>isManagerRole(u.role)).length;
 
   useEffect(()=>{
+    if(!authUser){
+      setRosterToday([]);
+      setStats({open:0,wkInsp:0});
+      setLoading(false);
+      return;
+    }
     async function load(){
       setLoading(true);
       try{
@@ -2096,7 +2111,7 @@ function App(){
   },[authUser?.role]);
 
   const handleLogin=u=>{setAuthUser(u);setShowLogin(false);};
-  const handleLogout=()=>{setAuthUser(null);localStorage.removeItem("ip_v4_token");setView("home");};
+  const handleLogout=()=>{setAuthUser(null);localStorage.removeItem("ip_v4_token");api.resetAuthExpired();setView("home");};
   const nav=v=>{
     if(v==="reports"&&!canManageOps(authUser))return;
     setView(v);
