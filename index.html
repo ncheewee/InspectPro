@@ -78,7 +78,7 @@ const {useState,useEffect,useRef,useCallback,useReducer} = React;
 // e.g. "https://inspectpro-api.railway.app"
 const API_BASE = window.INSPECTPRO_API || "https://inspectpro-api.onrender.com";
 
-const VERSION = "v5.2.3";
+const VERSION = "v5.2.4";
 const DAYS = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
 const isAdminRole = role => role === "admin";
 const isManagerRole = role => role === "manager" || role === "admin";
@@ -704,7 +704,7 @@ function LoginModal({users,onLogin,onClose}){
           <div style={{width:32,height:32,background:"var(--amber)",borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:12,color:"#fff",fontFamily:"'Syne',sans-serif"}}>IP</div>
           <span style={{fontWeight:700,fontSize:16,color:"var(--t1)",fontFamily:"'Syne',sans-serif"}}>Log In</span>
         </div>
-        <button onClick={onClose} style={{background:"none",border:"none",color:"var(--t3)",cursor:"pointer",fontSize:20}}>✕</button>
+        {onClose&&<button onClick={onClose} style={{background:"none",border:"none",color:"var(--t3)",cursor:"pointer",fontSize:20}}>✕</button>}
       </div>
 
       {step==="pick"
@@ -2240,17 +2240,40 @@ function App(){
   },[authUser?.role]);
 
   const handleLogin=u=>{setAuthUser(u);setShowLogin(false);};
-  const handleLogout=()=>{setAuthUser(null);localStorage.removeItem("ip_v4_token");api.resetAuthExpired();setView("home");};
+  const handleLogout=()=>{setAuthUser(null);localStorage.removeItem("ip_v4_token");api.resetAuthExpired();setView("home");setShowLogin(true);};
   const nav=v=>{
     if(v==="reports"&&!canManageOps(authUser))return;
     setView(v);
   };
 
+  // ── Not logged in: show only the login picker, full screen ──────────────────
+  if(!authUser){
+    return <div style={{fontFamily:"'DM Sans',sans-serif",background:"var(--bg)",minHeight:"100vh",color:"var(--t1)",transition:"background .25s"}}>
+      {!isOnline&&<div className="offline-bar">⚠ No internet connection — app requires a live connection</div>}
+      {serverWaking&&<div className="waking-bar" style={{top:!isOnline?32:0}}><span className="waking-spinner"/><span>Server is waking up — this takes about 30 seconds on first load. Hang tight!</span></div>}
+      {bootstrapErr&&<div style={{position:"fixed",bottom:16,left:16,right:16,padding:"12px 16px",background:"var(--op-bg)",borderRadius:12,color:"var(--op-fg)",fontSize:13,zIndex:600}}>
+        ⚠ {bootstrapErr}
+      </div>}
+      {users.length>0
+        ? <LoginModal users={users} onLogin={handleLogin} onClose={null}/>
+        : <div style={{display:"flex",alignItems:"center",justifyContent:"center",minHeight:"100vh"}}>
+            <div style={{textAlign:"center"}}>
+              <div style={{width:44,height:44,background:"var(--amber)",borderRadius:10,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:16,color:"#fff",fontFamily:"'Syne',sans-serif",margin:"0 auto 16px"}}>IP</div>
+              <Spinner size={24}/>
+              <p style={{marginTop:12,color:"var(--t3)",fontSize:14}}>Connecting…</p>
+            </div>
+          </div>
+      }
+      <ToastHost/>
+    </div>;
+  }
+
+  // ── Logged in ────────────────────────────────────────────────────────────────
   return <div style={{fontFamily:"'DM Sans',sans-serif",background:"var(--bg)",minHeight:"100vh",color:"var(--t1)",transition:"background .25s"}}>
     {!isOnline&&<div className="offline-bar">⚠ No internet connection — app requires a live connection</div>}
     {serverWaking&&<div className="waking-bar" style={{top:!isOnline?32:0}}><span className="waking-spinner"/><span>Server is waking up — this takes about 30 seconds on first load. Hang tight!</span></div>}
     <div style={{marginTop:(!isOnline&&serverWaking)?64:(!isOnline||serverWaking)?32:0}}>
-      <NavBar view={view} nav={nav} authUser={authUser} onSignIn={()=>setShowLogin(true)} onSignOut={handleLogout} theme={theme} setTheme={setTheme} onAdmin={()=>authUser?setShowAdmin(true):setShowLogin(true)}/>
+      <NavBar view={view} nav={nav} authUser={authUser} onSignIn={()=>setShowLogin(true)} onSignOut={handleLogout} theme={theme} setTheme={setTheme} onAdmin={()=>setShowAdmin(true)}/>
       <div className="main-pad" style={{maxWidth:1140,margin:"0 auto"}}>
         {bootstrapErr&&<div style={{padding:"20px",background:"var(--op-bg)",borderRadius:12,color:"var(--op-fg)",marginBottom:16,fontSize:14}}>
           ⚠ {bootstrapErr}<br/><span style={{fontSize:12,opacity:.8}}>API: {API_BASE}</span>
@@ -2262,9 +2285,7 @@ function App(){
         {view==="reports" &&canManageOps(authUser)&&<ReportsView users={users} zones={zones} authUser={authUser}/>}
       </div>
     </div>
-    {!authUser&&<div onClick={()=>setShowLogin(true)} style={{position:"fixed",bottom:"calc(72px + env(safe-area-inset-bottom,0px))",right:18,background:"var(--amber)",color:"#fff",fontWeight:600,fontSize:14,padding:"11px 20px",borderRadius:40,cursor:"pointer",boxShadow:"0 4px 20px rgba(0,0,0,.35)",display:"flex",alignItems:"center",gap:7,zIndex:100}}>🔑 Log In</div>}
-    {showLogin&&<LoginModal users={users} onLogin={handleLogin} onClose={()=>setShowLogin(false)}/>}
-    {showAdmin&&authUser&&<AdminPanel authUser={authUser} users={users} setUsers={setUsers} zones={zones} setZones={setZones} ejConfig={ejConfig} setEjConfig={setEjConfig} tgConfig={tgConfig} setTgConfig={setTgConfig} onClose={()=>setShowAdmin(false)}/>}
+    {showAdmin&&<AdminPanel authUser={authUser} users={users} setUsers={setUsers} zones={zones} setZones={setZones} ejConfig={ejConfig} setEjConfig={setEjConfig} tgConfig={tgConfig} setTgConfig={setTgConfig} onClose={()=>setShowAdmin(false)}/>}
     <ToastHost/>
     <ConfirmHost/>
   </div>;
