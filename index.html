@@ -78,7 +78,7 @@ const {useState,useEffect,useRef,useCallback,useReducer} = React;
 // e.g. "https://inspectpro-api.railway.app"
 const API_BASE = window.INSPECTPRO_API || "https://inspectpro-api.onrender.com";
 
-const VERSION = "v5.2.2";
+const VERSION = "v5.2.3";
 const DAYS = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
 const isAdminRole = role => role === "admin";
 const isManagerRole = role => role === "manager" || role === "admin";
@@ -103,6 +103,12 @@ const fD     = ts=>new Date(ts).toLocaleDateString("en-SG",{day:"2-digit",month:
 const fS     = d=>`${d.getDate()}/${d.getMonth()+1}`;
 const fDur   = ms=>{const m=Math.round(ms/60000);return`${Math.floor(m/60)}h ${m%60}m`;};
 const uid    = ()=>Math.random().toString(36).substr(2,9).toUpperCase();
+// Returns first name if unique in the team, full name if another user shares that first name
+const displayName=(user,allUsers)=>{
+  const first=(user?.name||"").split(" ")[0];
+  const collides=(allUsers||[]).some(u=>u.id!==user?.id&&u.name.split(" ")[0]===first);
+  return collides?user.name:first;
+};
 
 // Simple debounce hook — returns a debounced version of value after `delay` ms
 function useDebounce(value, delay){
@@ -490,7 +496,7 @@ function AutoPlanModal({users,zones,onClose,today,onApplied}) {
           {inspectors.map(u=><label key={u.id} style={{display:"flex",alignItems:"center",gap:6,padding:"5px 10px",background:selInsp.includes(u.id)?"var(--bbg)":"var(--surf)",border:`1px solid ${selInsp.includes(u.id)?"var(--blue)":"var(--bd)"}`,borderRadius:20,cursor:"pointer"}}>
             <input type="checkbox" checked={selInsp.includes(u.id)} onChange={()=>setSelInsp(a=>toggleArr(a,u.id))} style={{accentColor:"var(--blue)",width:13,height:13}}/>
             <Avatar user={u} size={20}/>
-            <span style={{fontSize:13,fontWeight:600,color:"var(--t1)"}}>{u.name.split(" ")[0]}</span>
+            <span style={{fontSize:13,fontWeight:600,color:"var(--t1)"}}>{displayName(u,inspectors)}</span>
           </label>)}
         </div>
         <Lbl>Zones to rotate ({selZones.length} selected)</Lbl>
@@ -500,8 +506,27 @@ function AutoPlanModal({users,zones,onClose,today,onApplied}) {
         <div style={{background:"var(--bbg)",border:"1px solid var(--blue)22",borderRadius:8,padding:"10px 13px",marginBottom:16,fontSize:13,color:"var(--t2)"}}>
           <strong style={{color:"var(--t1)"}}>Default team:</strong> 3 inspectors + 2 manager/admin users cover 5 zones each week.
         </div>
-        {preview&&<div style={{background:"var(--gbg)",border:"1px solid var(--green)22",borderRadius:8,padding:"10px 13px",marginBottom:14,fontSize:13,color:"var(--t2)"}}>
-          ✓ Preview ready: <strong style={{color:"var(--t1)"}}>{Object.keys(preview).length} weeks</strong> · {selInsp.length} people × {selZones.length} zones
+        {preview&&<div style={{background:"var(--gbg)",border:"1px solid var(--green)33",borderRadius:8,padding:"12px 14px",marginBottom:14,fontSize:13}}>
+          <div style={{fontWeight:700,color:"var(--t1)",marginBottom:10}}>✓ Preview — {Object.keys(preview).length} weeks · {selInsp.length} people × {selZones.length} zones</div>
+          <div style={{maxHeight:220,overflowY:"auto",display:"flex",flexDirection:"column",gap:6}}>
+            {Object.entries(preview).map(([wk,wkData])=>{
+              const slots=wkData.Week||[];
+              return <div key={wk} style={{display:"flex",gap:6,alignItems:"flex-start",flexWrap:"wrap"}}>
+                <Mono size={11} style={{background:"var(--surf)",padding:"3px 7px",borderRadius:5,flexShrink:0,lineHeight:"22px"}}>{wk}</Mono>
+                <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
+                  {slots.map((s,i)=>{
+                    const u=users.find(uu=>uu.id===s.inspectorIds?.[0]);
+                    const z=zones.find(zz=>zz.id===s.zoneId);
+                    return u&&z?<div key={i} style={{display:"flex",alignItems:"center",gap:5,background:"var(--surf)",border:"1px solid var(--bd)",borderRadius:20,padding:"3px 8px 3px 4px"}}>
+                      <Avatar user={u} size={18}/>
+                      <span style={{fontSize:12,fontWeight:600,color:"var(--t1)"}}>{displayName(u,users)}</span>
+                      <Mono size={11} color="var(--blue)" style={{background:"var(--bbg)",padding:"1px 5px",borderRadius:4}}>{s.zoneId}</Mono>
+                    </div>:null;
+                  })}
+                </div>
+              </div>;
+            })}
+          </div>
         </div>}
         {err&&<ErrBox msg={err}/>}
         <div style={{display:"flex",gap:9,justifyContent:"flex-end",flexWrap:"wrap"}}>
@@ -541,8 +566,18 @@ const Mono=({children,size=12,color,style:sx={}})=>
   <span style={{fontFamily:"'DM Mono',monospace",fontSize:size,color:color||"var(--t3)",lineHeight:1.4,...sx}}>{children}</span>;
 const Lbl=({children})=>
   <label style={{display:"block",fontSize:12,fontWeight:600,color:"var(--t3)",textTransform:"uppercase",letterSpacing:".06em",marginBottom:6,fontFamily:"'DM Mono',monospace"}}>{children}</label>;
-const Avatar=({user,size=36})=>
-  <div style={{width:size,height:size,borderRadius:"50%",background:user?.color||"var(--blue)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:size*.32,fontWeight:600,color:"#fff",flexShrink:0,fontFamily:"'DM Mono',monospace",border:`2px solid ${(user?.color||"#3b82f6")+"44"}`}}>{user?.initials||"?"}</div>;
+const Avatar=({user,size=36})=>{
+  const role=user?.role;
+  const isAdm=role==="admin";
+  const isMgr=role==="manager";
+  const col=user?.color||"#3b82f6";
+  const border=isAdm||isMgr?`2px solid ${col}`:`2px solid ${col}44`;
+  const shadow=isAdm?`0 0 0 1.5px ${col}`:"none";
+  return <div style={{position:"relative",flexShrink:0,width:size,height:size,display:"inline-flex"}}>
+    <div style={{width:size,height:size,borderRadius:"50%",background:col,display:"flex",alignItems:"center",justifyContent:"center",fontSize:size*.32,fontWeight:600,color:"#fff",fontFamily:"'DM Mono',monospace",border,boxShadow:shadow}}>{user?.initials||"?"}</div>
+    {isAdm&&<span style={{position:"absolute",top:-3,right:-3,fontSize:Math.max(9,size*.28),lineHeight:1,pointerEvents:"none",filter:"drop-shadow(0 1px 2px rgba(0,0,0,.6))"}}>👑</span>}
+  </div>;
+};
 const Badge=({status})=>{
   const M={open:{bg:"var(--op-bg)",fg:"var(--op-fg)",l:"Open"},"in-progress":{bg:"var(--ip-bg)",fg:"var(--ip-fg)",l:"In Progress"},closed:{bg:"var(--cl-bg)",fg:"var(--cl-fg)",l:"Closed"},ok:{bg:"var(--ok-bg)",fg:"var(--ok-fg)",l:"OK"},flagged:{bg:"var(--op-bg)",fg:"var(--op-fg)",l:"Flagged"},pending:{bg:"var(--pd-bg)",fg:"var(--pd-fg)",l:"Pending"}};
   const s=M[status]||M.pending;
@@ -639,6 +674,9 @@ function LoginModal({users,onLogin,onClose}){
   const [err,setErr]=useState("");
   const [loading,setLoading]=useState(false);
   const user=loginUsers.find(u=>u.id===selId);
+
+  const selectUser=id=>{setSelId(id);setErr("");setStep("pin");};
+
   const tryPin=async pin=>{
     if(!user)return;
     setLoading(true);setErr("");
@@ -651,37 +689,47 @@ function LoginModal({users,onLogin,onClose}){
       setErr(e.status===401?"Incorrect PIN.":"Server error. Try again.");
     }finally{setLoading(false);}
   };
-  return <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.8)",backdropFilter:"blur(6px)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:500,padding:16}}>
-    <div style={{...C.card({background:"var(--card2)"}),maxWidth:380,width:"100%"}}>
-      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:22}}>
+
+  // Group users by role for the picker
+  const roleGroups=[
+    {label:"Admin",    list:loginUsers.filter(u=>u.role==="admin")},
+    {label:"Manager",  list:loginUsers.filter(u=>u.role==="manager")},
+    {label:"Inspector",list:loginUsers.filter(u=>u.role==="inspector")},
+  ].filter(g=>g.list.length>0);
+
+  return <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.8)",backdropFilter:"blur(6px)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:500,padding:16,overflowY:"auto"}}>
+    <div style={{...C.card({background:"var(--card2)"}),maxWidth:400,width:"100%",margin:"auto"}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20}}>
         <div style={{display:"flex",alignItems:"center",gap:10}}>
           <div style={{width:32,height:32,background:"var(--amber)",borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:12,color:"#fff",fontFamily:"'Syne',sans-serif"}}>IP</div>
           <span style={{fontWeight:700,fontSize:16,color:"var(--t1)",fontFamily:"'Syne',sans-serif"}}>Log In</span>
         </div>
         <button onClick={onClose} style={{background:"none",border:"none",color:"var(--t3)",cursor:"pointer",fontSize:20}}>✕</button>
       </div>
+
       {step==="pick"
-        ? <>
-            <Lbl>Your Name</Lbl>
-            <select value={selId} onChange={e=>setSelId(e.target.value)} style={C.inp({marginBottom:14})}>
-              <option value="">— Select your name —</option>
-              {loginUsers.map(u=><option key={u.id} value={u.id}>{u.name} ({u.role})</option>)}
-            </select>
-            <p style={{fontSize:13,color:"var(--t3)",marginTop:-6,marginBottom:14,lineHeight:1.45}}>{loginUsers.length} team member{loginUsers.length!==1?"s":""} · select your name to continue</p>
-            {selId&&<div style={{display:"flex",alignItems:"center",gap:10,padding:"11px 13px",background:"var(--surf)",borderRadius:9,border:"1px solid var(--bd)",marginBottom:14}}>
-              <Avatar user={user} size={40}/>
-              <div><div style={{fontWeight:600,fontSize:15,color:"var(--t1)"}}>{user.name}</div><Mono size={12}>{user.role.toUpperCase()} · {user.id}</Mono></div>
-            </div>}
-            <button onClick={()=>selId&&setStep("pin")} disabled={!selId} style={{...C.btn("pri",{width:"100%",padding:"12px"}),opacity:selId?1:.35}}>Continue →</button>
-          </>
-        : <>
-            <div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 13px",background:"var(--surf)",borderRadius:9,border:"1px solid var(--bd)",marginBottom:20}}>
-              <Avatar user={user} size={36}/><div style={{flex:1}}><div style={{fontWeight:600,color:"var(--t1)"}}>{user?.name}</div></div>
-              <button onClick={()=>{setStep("pick");setErr("");}} style={C.btn("ghost",{padding:"4px 9px",fontSize:12})}>Change</button>
+        ?<>
+          <p style={{fontSize:13,color:"var(--t3)",marginBottom:14,lineHeight:1.45}}>Tap your name to continue</p>
+          {roleGroups.map(g=><div key={g.label} style={{marginBottom:14}}>
+            <Lbl>{g.label}</Lbl>
+            <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+              {g.list.map(u=><button key={u.id} onClick={()=>selectUser(u.id)}
+                style={{display:"flex",alignItems:"center",gap:8,background:"var(--surf)",border:"1px solid var(--bd)",borderRadius:24,padding:"7px 14px 7px 7px",cursor:"pointer",color:"var(--t1)",fontWeight:600,fontSize:14,fontFamily:"'DM Sans',sans-serif",transition:"all .15s"}}>
+                <Avatar user={u} size={28}/>
+                <span>{u.name}</span>
+              </button>)}
             </div>
-            {loading?<div style={{textAlign:"center",padding:"20px"}}><Spinner size={24}/></div>
-              :<PinPad onComplete={tryPin} label="Enter your 6-digit PIN" error={err}/>}
-          </>
+          </div>)}
+        </>
+        :<>
+          <div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 13px",background:"var(--surf)",borderRadius:9,border:"1px solid var(--bd)",marginBottom:20}}>
+            <Avatar user={user} size={36}/>
+            <div style={{flex:1}}><div style={{fontWeight:600,color:"var(--t1)"}}>{user?.name}</div><Mono size={12}>{user?.role?.toUpperCase()} · {user?.id}</Mono></div>
+            <button onClick={()=>{setStep("pick");setSelId("");setErr("");}} style={C.btn("ghost",{padding:"4px 9px",fontSize:12})}>Change</button>
+          </div>
+          {loading?<div style={{textAlign:"center",padding:"20px"}}><Spinner size={24}/></div>
+            :<PinPad onComplete={tryPin} label="Enter your 6-digit PIN" error={err}/>}
+        </>
       }
     </div>
   </div>;
@@ -827,8 +875,8 @@ function HomeView({today,authUser,users,zones,nav,isOnline}){
                 <span style={{fontWeight:700,fontSize:14,color:"var(--t1)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{z?.name}</span>
               </div>
               <div style={{display:"flex",gap:6,alignItems:"center",justifyContent:"flex-end",flexWrap:"wrap"}}>
-                {insps.map((u,j)=>u&&<div key={j} style={{width:106,minHeight:30,display:"flex",alignItems:"center",gap:6,background:"var(--surf)",border:"1px solid var(--bd)",borderRadius:20,padding:"4px 8px 4px 4px"}}>
-                  <Avatar user={u} size={22}/><span style={{fontSize:13,fontWeight:700,color:"var(--t1)"}}>{u.name.split(" ")[0]}</span>
+                {insps.map((u,j)=>u&&<div key={j} style={{minHeight:30,display:"flex",alignItems:"center",gap:6,background:"var(--surf)",border:"1px solid var(--bd)",borderRadius:20,padding:"4px 8px 4px 4px"}}>
+                  <Avatar user={u} size={22}/><span style={{fontSize:13,fontWeight:700,color:"var(--t1)"}}>{displayName(u,users)}</span>
                 </div>)}
               </div>
             </div>;
@@ -1459,7 +1507,7 @@ function RosterView({users,zones,authUser,today}){
         onDragStart={e=>e.dataTransfer.setData("text/plain",u.id)}
         onClick={()=>setPickedInspector(id=>id===u.id?"":u.id)}
         style={{display:"flex",alignItems:"center",gap:6,border:`1px solid ${pickedInspector===u.id?"var(--blue)":"var(--bd)"}`,background:pickedInspector===u.id?"var(--bbg)":"var(--surf)",borderRadius:20,padding:"7px 12px",cursor:"grab",color:"var(--t1)",fontWeight:700,fontSize:14}}>
-        <Avatar user={u} size={24}/>{u.name.split(" ")[0]}
+        <Avatar user={u} size={24}/>{displayName(u,people)}
       </button>)}
       <Mono size={12} color="var(--t3)">Click a person, then click a zone. Drag works too on desktop.</Mono>
     </div>}
@@ -1484,13 +1532,17 @@ function RosterView({users,zones,authUser,today}){
             <div style={{display:"flex",flexDirection:"column",gap:6,alignItems:"stretch",minWidth:0}}>
               {slots.map(s=>{
                 const insps=(s.inspectorIds||[]).map(id=>users.find(u=>u.id===id)).filter(Boolean);
-                return <div key={s.id} style={{background:"var(--surf)",borderRadius:8,padding:"7px",border:"1px solid var(--bd2)"}}>
+                const sups=(s.supervisorIds||[]).map(id=>users.find(u=>u.id===id)).filter(Boolean);
+                return <div key={s.id} style={{background:"var(--surf)",borderRadius:8,padding:"8px 10px",border:"1px solid var(--bd2)"}}>
                   <div style={{display:"flex",gap:6,alignItems:"center",justifyContent:"flex-end",flexWrap:"wrap"}}>
                     {insps.map((u,j)=><div key={j} style={{display:"flex",alignItems:"center",gap:6,background:"var(--card2)",border:"1px solid var(--bd)",borderRadius:20,padding:"4px 8px 4px 4px"}}>
-                      <Avatar user={u} size={24}/><span style={{fontSize:13,fontWeight:700,color:"var(--t1)"}}>{u.name.split(" ")[0]}</span>
+                      <Avatar user={u} size={24}/><span style={{fontSize:13,fontWeight:700,color:"var(--t1)"}}>{displayName(u,users)}</span>
                       {completed[completionKey(u.id,zone.id)]
                         ?<span style={{fontSize:11,fontWeight:700,background:"var(--cl-bg)",color:"var(--cl-fg)",padding:"2px 7px",borderRadius:20}}>Done</span>
                         :<span style={{fontSize:11,fontWeight:700,background:"var(--pd-bg)",color:"var(--pd-fg)",padding:"2px 7px",borderRadius:20}}>Due</span>}
+                    </div>)}
+                    {sups.map((u,j)=><div key={"s"+j} style={{display:"flex",alignItems:"center",gap:5,background:"var(--bbg)",border:"1px solid var(--blue)44",borderRadius:20,padding:"3px 7px 3px 3px"}}>
+                      <Avatar user={u} size={20}/><Mono size={11} color="var(--blue)">{displayName(u,users)}</Mono>
                     </div>)}
                   </div>
                   {canEdit&&<div style={{display:"flex",gap:6,justifyContent:"flex-end",marginTop:7}}>
@@ -1516,7 +1568,7 @@ function RosterView({users,zones,authUser,today}){
       <div style={{display:"flex",gap:7,flexWrap:"wrap",marginBottom:12}}>
         {people.map(u=><label key={u.id} style={{display:"flex",alignItems:"center",gap:6,padding:"5px 10px",background:ef.inspIds.includes(u.id)?"var(--bbg)":"var(--surf)",border:`1px solid ${ef.inspIds.includes(u.id)?"var(--blue)":"var(--bd)"}`,borderRadius:20,cursor:"pointer"}}>
           <input type="checkbox" checked={ef.inspIds.includes(u.id)} onChange={()=>setEf(f=>({...f,inspIds:toggleId(f.inspIds,u.id)}))} style={{accentColor:"var(--blue)"}}/>
-          <Avatar user={u} size={18}/><span style={{fontSize:13,fontWeight:600,color:"var(--t1)"}}>{u.name.split(" ")[0]}</span>
+          <Avatar user={u} size={18}/><span style={{fontSize:13,fontWeight:600,color:"var(--t1)"}}>{displayName(u,people)}</span>
         </label>)}
       </div>
       <Lbl>Supervisor (optional)</Lbl>
@@ -1575,7 +1627,7 @@ function YearPlanView({users,zones,today,authUser}){
     </div>
     <div style={{display:"flex",gap:7,marginBottom:12,flexWrap:"wrap"}}>
       {users.map(u=><div key={u.id} style={{display:"flex",alignItems:"center",gap:6,background:"var(--card)",border:"1px solid var(--bd)",borderRadius:20,padding:"3px 10px"}}>
-        <div style={{width:9,height:9,borderRadius:"50%",background:u.color}}/><span style={{fontSize:13,color:"var(--t2)"}}>{u.name.split(" ")[0]}</span>
+        <div style={{width:9,height:9,borderRadius:"50%",background:u.color}}/><span style={{fontSize:13,color:"var(--t2)"}}>{displayName(u,users)}</span>
       </div>)}
     </div>
     {loading?<div style={{textAlign:"center",padding:"48px"}}><Spinner size={24}/></div>:
@@ -1598,7 +1650,7 @@ function YearPlanView({users,zones,today,authUser}){
                     ?<div style={{display:"flex",flexDirection:"column",gap:2,padding:"2px"}}>
                       {slots.slice(0,3).map((s,i)=>{const u=users.find(u=>(s.inspectorIds||[]).includes(u.id));
                         return <div key={i} style={{fontSize:9,fontWeight:600,background:u?.color?`${u.color}22`:"var(--card2)",color:"var(--t1)",borderRadius:3,padding:"1px 4px",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:88}}>
-                          {u?.name?.split(" ")[0]||"?"} <Mono size={8} color="var(--t3)">{s.zoneId}</Mono>
+                          {u?displayName(u,users):"?"} <Mono size={8} color="var(--t3)">{s.zoneId}</Mono>
                         </div>;})}
                       {slots.length>3&&<Mono size={9} color="var(--t3)">+{slots.length-3}</Mono>}
                     </div>
@@ -1825,7 +1877,19 @@ function ReportsView({users,zones,authUser}){
 const USER_COLORS=["#3b82f6","#8b5cf6","#06b6d4","#10b981","#f59e0b","#ec4899","#ef4444","#f97316","#84cc16","#14b8a6"];
 function AdminPanel({authUser,users,setUsers,zones,setZones,onClose,ejConfig,setEjConfig,tgConfig,setTgConfig}){
   const isAdmin=canManageConfig(authUser);
+  const isMgr=isManagerRole(authUser?.role);
   const [tab,setTab]=useState(isAdmin?"team":"pin");
+  // My email self-service
+  const [myEmail,setMyEmail]=useState(authUser?.email||"");
+  const [emailMsg,setEmailMsg]=useState("");
+  const saveMyEmail=async()=>{
+    setEmailMsg("Saving…");
+    try{
+      const u=await api.put(`/api/users/${authUser.id}`,{name:authUser.name,role:authUser.role,email:myEmail.trim(),color:authUser.color});
+      setUsers(p=>p.map(uu=>uu.id===authUser.id?{...uu,...u}:uu));
+      setEmailMsg("✅ Email saved.");
+    }catch(e){setEmailMsg("❌ "+e.message);}
+  };
   // PIN change — 3 steps: enter current → enter new → confirm → API call once
   const [ps,setPs]=useState("old");
   const [oldPin,setOldPin]=useState("");
@@ -1951,6 +2015,7 @@ function AdminPanel({authUser,users,setUsers,zones,setZones,onClose,ejConfig,set
     </div>
     <div style={{display:"flex",gap:5,marginBottom:18,flexWrap:"wrap"}}>
       <button onClick={()=>setTab("pin")} style={C.btn(tab==="pin"?"pri":"ghost",{padding:"7px 12px",fontSize:13})}>🔑 PIN</button>
+      <button onClick={()=>setTab("profile")} style={C.btn(tab==="profile"?"pri":"ghost",{padding:"7px 12px",fontSize:13})}>👤 My Profile</button>
       {isAdmin&&<>
         <button onClick={()=>setTab("team")} style={C.btn(tab==="team"?"pri":"ghost",{padding:"7px 12px",fontSize:13})}>👥 Team</button>
         <button onClick={()=>setTab("zones")} style={C.btn(tab==="zones"?"pri":"ghost",{padding:"7px 12px",fontSize:13})}>🧭 Zones</button>
@@ -1971,6 +2036,17 @@ function AdminPanel({authUser,users,setUsers,zones,setZones,onClose,ejConfig,set
       }
     </div>}
 
+    {tab==="profile"&&<div>
+      <div style={{background:"var(--abg)",border:"1px solid var(--abd)",borderRadius:8,padding:"10px 13px",marginBottom:14,fontSize:13,color:"var(--t2)",lineHeight:1.5}}>
+        Inspection reports are emailed to your address and to all managers. Keep this up to date so you receive your own copies.
+      </div>
+      <Lbl>My Email Address</Lbl>
+      <input type="email" value={myEmail} onChange={e=>setMyEmail(e.target.value)} placeholder="you@example.com" style={C.inp({marginBottom:10})}/>
+      {emailMsg&&<div style={{padding:"8px 12px",borderRadius:7,fontSize:13,marginBottom:10,background:emailMsg.startsWith("✅")?"var(--cl-bg)":"var(--op-bg)",color:emailMsg.startsWith("✅")?"var(--cl-fg)":"var(--op-fg)"}}>{emailMsg}</div>}
+      <button onClick={saveMyEmail} style={C.btn("pri",{width:"100%",padding:"10px"})}>Save Email</button>
+      <p style={{fontSize:12,color:"var(--t3)",marginTop:10,lineHeight:1.5}}>Your email is used to receive your own inspection reports. Managers and admins always receive copies regardless.</p>
+    </div>}
+
     {tab==="team"&&<div>
       <ErrBox msg={userErr}/>
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
@@ -1987,7 +2063,7 @@ function AdminPanel({authUser,users,setUsers,zones,setZones,onClose,ejConfig,set
               <option value="inspector">Inspector</option><option value="manager">Manager</option><option value="admin">Admin</option>
             </select>
             <Lbl>Colour</Lbl>
-            <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:12}}>{USER_COLORS.map(c=><button key={c} onClick={()=>setEditingUser(p=>({...p,color:c}))} style={{width:24,height:24,borderRadius:"50%",background:c,border:editingUser.color===c?"3px solid var(--t1)":"2px solid transparent",cursor:"pointer"}}/>)}</div>
+            <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:12}}>{USER_COLORS.map(c=><button key={c} onClick={()=>setEditingUser(p=>({...p,color:c}))} style={{width:24,height:24,minWidth:24,borderRadius:"50%",background:c,border:editingUser.color===c?"3px solid var(--t1)":"2px solid transparent",cursor:"pointer",padding:0,flexShrink:0}}/>)}</div>
             <div style={{display:"flex",gap:7}}><button onClick={()=>saveUserEdit(u.id,editingUser)} style={C.btn("pri",{flex:1,padding:"8px"})}>Save</button><button onClick={()=>setEditingUser(null)} style={C.btn("ghost",{padding:"8px 12px"})}>Cancel</button></div>
           </div>
           :<div key={u.id} style={{display:"flex",alignItems:"center",gap:10,background:"var(--surf)",border:"1px solid var(--bd)",borderRadius:10,padding:"10px 13px"}}>
@@ -2009,7 +2085,7 @@ function AdminPanel({authUser,users,setUsers,zones,setZones,onClose,ejConfig,set
         <Lbl>Role</Lbl>
         <select value={newUser.role} onChange={e=>setNewUser(p=>({...p,role:e.target.value}))} style={C.inp({marginBottom:8})}><option value="inspector">Inspector</option><option value="manager">Manager</option><option value="admin">Admin</option></select>
         <Lbl>Colour</Lbl>
-        <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:12}}>{USER_COLORS.map(c=><button key={c} onClick={()=>setNewUser(p=>({...p,color:c}))} style={{width:24,height:24,borderRadius:"50%",background:c,border:newUser.color===c?"3px solid var(--t1)":"2px solid transparent",cursor:"pointer"}}/>)}</div>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:12}}>{USER_COLORS.map(c=><button key={c} onClick={()=>setNewUser(p=>({...p,color:c}))} style={{width:24,height:24,minWidth:24,borderRadius:"50%",background:c,border:newUser.color===c?"3px solid var(--t1)":"2px solid transparent",cursor:"pointer",padding:0,flexShrink:0}}/>)}</div>
         <div style={{display:"flex",gap:7}}><button onClick={addUser} disabled={!newUser.name.trim()} style={{...C.btn("pri",{flex:1,padding:"9px"}),opacity:newUser.name.trim()?1:.35}}>Add</button><button onClick={()=>setAddingUser(false)} style={C.btn("ghost",{padding:"9px 12px"})}>Cancel</button></div>
       </div>}
     </div>}
@@ -2055,13 +2131,22 @@ function AdminPanel({authUser,users,setUsers,zones,setZones,onClose,ejConfig,set
     </div>}
 
     {tab==="telegram"&&<div style={{display:"flex",flexDirection:"column",gap:12}}>
+      <div style={{background:"var(--bbg)",border:"1px solid var(--blue)22",borderRadius:8,padding:"11px 13px",fontSize:13,color:"var(--t2)",lineHeight:1.6}}>
+        <strong style={{color:"var(--t1)"}}>Setup: Group Chat notifications</strong><br/>
+        1. Create a Telegram group and add all managers to it.<br/>
+        2. Add your bot to the group and promote it to admin (so it can post).<br/>
+        3. Send any message in the group, then visit:<br/>
+        <Mono size={12} style={{display:"block",wordBreak:"break-all",marginTop:3}}>https://api.telegram.org/bot&lt;TOKEN&gt;/getUpdates</Mono>
+        4. Find the <Mono size={12}>chat.id</Mono> value (starts with <Mono size={12}>-100</Mono> for groups) and paste it below.
+      </div>
       <div><Lbl>Bot Token</Lbl><input value={tg.tgBotToken||""} onChange={e=>setTg(c=>({...c,tgBotToken:e.target.value.trim()}))} placeholder="1234567890:AABBccDDeeff..." style={C.inp({fontFamily:"'DM Mono',monospace",fontSize:13})}/></div>
-      <div><Lbl>Chat ID</Lbl><input value={tg.tgChatId||""} onChange={e=>setTg(c=>({...c,tgChatId:e.target.value.trim()}))} placeholder="-100xxxxxxxxxx" style={C.inp({fontFamily:"'DM Mono',monospace",fontSize:13})}/></div>
+      <div><Lbl>Group Chat ID</Lbl><input value={tg.tgChatId||""} onChange={e=>setTg(c=>({...c,tgChatId:e.target.value.trim()}))} placeholder="-100xxxxxxxxxx" style={C.inp({fontFamily:"'DM Mono',monospace",fontSize:13})}/></div>
       {tgMsg&&<div style={{padding:"8px 12px",borderRadius:7,fontSize:13,background:tgMsg.startsWith("✅")?"var(--cl-bg)":"var(--op-bg)",color:tgMsg.startsWith("✅")?"var(--cl-fg)":"var(--op-fg)"}}>{tgMsg}</div>}
       <div style={{display:"flex",gap:8}}>
         <button onClick={saveTg} style={C.btn("pri",{padding:"9px",flex:1})}>💾 Save</button>
         <button onClick={testTg} style={C.btn("sec",{padding:"9px",flex:1})}>Send Test</button>
       </div>
+      <p style={{fontSize:12,color:"var(--t3)"}}>All inspection completion alerts go to this group. Every manager in the group sees them in real time.</p>
     </div>}
 
     {tab==="pilot"&&<div style={{display:"flex",flexDirection:"column",gap:12}}>
@@ -2096,7 +2181,7 @@ function App(){
   const [zones,setZones]=useState([]);
   const [theme,setTheme]=useState(saved?.theme||"dark");
   const [view,setView]=useState("home");
-  const [showLogin,setShowLogin]=useState(false);
+  const [showLogin,setShowLogin]=useState(()=>!LS.load("ip_v4_user"));
   const [showAdmin,setShowAdmin]=useState(false);
   const [isOnline,setIsOnline]=useState(navigator.onLine);
   const [serverWaking,setServerWaking]=useState(false);
