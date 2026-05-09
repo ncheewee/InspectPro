@@ -56,6 +56,8 @@ textarea{resize:vertical;}img{display:block;}
 .pin-dot{width:14px;height:14px;border-radius:50%;border:2px solid var(--bd2);background:transparent;transition:all .15s;display:inline-block;}
 .pin-dot.on{background:var(--amber);border-color:var(--amber);}
 .offline-bar{position:fixed;top:0;left:0;right:0;z-index:999;background:#92400e;color:#fde68a;font-size:13px;font-weight:600;text-align:center;padding:6px;display:flex;align-items:center;justify-content:center;gap:8px;}
+.waking-bar{position:fixed;top:0;left:0;right:0;z-index:998;background:#0d2461;color:#93c5fd;font-size:13px;font-weight:500;text-align:center;padding:7px 12px;display:flex;align-items:center;justify-content:center;gap:10px;border-bottom:1px solid #1e3a8a;}
+.waking-bar .waking-spinner{width:14px;height:14px;border:2px solid rgba(147,197,253,.3);border-top-color:#93c5fd;border-radius:50%;animation:spin .7s linear infinite;flex-shrink:0;}
 .bottom-nav{display:none;position:fixed;bottom:0;left:0;right:0;z-index:200;background:var(--surf);border-top:1px solid var(--bd);padding:0 0 env(safe-area-inset-bottom,0);box-shadow:0 -4px 20px rgba(0,0,0,.18);}
 .top-tabs{display:flex;}
 .main-pad{padding:16px 14px 80px;max-width:100%;overflow-x:hidden;}
@@ -76,7 +78,7 @@ const {useState,useEffect,useRef,useCallback,useReducer} = React;
 // e.g. "https://inspectpro-api.railway.app"
 const API_BASE = window.INSPECTPRO_API || "https://inspectpro-api.onrender.com";
 
-const VERSION = "v5.2.1";
+const VERSION = "v5.2.2";
 const DAYS = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
 const isAdminRole = role => role === "admin";
 const isManagerRole = role => role === "manager" || role === "admin";
@@ -113,12 +115,35 @@ function useDebounce(value, delay){
 }
 const LS     = {load:k=>{try{const d=localStorage.getItem(k);return d?JSON.parse(d):null;}catch{return null;}},save:(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v));}catch{}}};
 
+// ── SERVER WAKE-UP TRACKER ────────────────────────────────────────────────────
+// Render (free tier) spins down after inactivity. When a request takes >3 s,
+// show a friendly banner so users know the server is cold-starting — not broken.
+let _wakingCount = 0;
+function _startWakeTimer(){
+  let fired = false;
+  const timer = setTimeout(()=>{
+    fired = true;
+    _wakingCount++;
+    if(_wakingCount === 1) window.dispatchEvent(new CustomEvent("ip_server_waking"));
+  }, 3000);
+  return {
+    cancel(){
+      clearTimeout(timer);
+      if(fired){
+        _wakingCount = Math.max(0, _wakingCount - 1);
+        if(_wakingCount === 0) window.dispatchEvent(new CustomEvent("ip_server_ready"));
+      }
+    }
+  };
+}
+
 // ── API CLIENT ────────────────────────────────────────────────────────────────
 const api = {
   _token: ()=>LS.load("ip_v4_token")||"",
   _authExpiredNotified: false,
 
   async req(method, path, body, opts={}){
+    const wakeTimer = _startWakeTimer();
     const headers = {"Content-Type":"application/json"};
     const token = this._token();
     if(token) headers["Authorization"] = `Bearer ${token}`;
@@ -128,6 +153,7 @@ const api = {
         body: body ? JSON.stringify(body) : undefined,
         signal: opts.signal,
       });
+      wakeTimer.cancel();
       const data = await res.json();
       if(!res.ok){
         if(res.status===401&&token&&!this._authExpiredNotified){
@@ -138,6 +164,7 @@ const api = {
       }
       return data;
     }catch(e){
+      wakeTimer.cancel();
       if(e.name==="AbortError") throw e;
       throw e;
     }
@@ -149,19 +176,26 @@ const api = {
   delete: (path,opts)=>api.req("DELETE",path,null,opts),
   resetAuthExpired: ()=>{api._authExpiredNotified=false;},
   async uploadForm(path, form, opts={}){
+    const wakeTimer = _startWakeTimer();
     const headers = {};
     const token = this._token();
     if(token) headers["Authorization"] = `Bearer ${token}`;
-    const res = await fetch(`${API_BASE}${path}`, {
-      method: "POST",
-      headers,
-      body: form,
-      signal: opts.signal,
-    });
-    const text = await res.text();
-    const data = text ? (()=>{try{return JSON.parse(text);}catch{return {error:text};}})() : {};
-    if(!res.ok) throw Object.assign(new Error(data.error||"Upload failed"), {status:res.status,data});
-    return data;
+    try{
+      const res = await fetch(`${API_BASE}${path}`, {
+        method: "POST",
+        headers,
+        body: form,
+        signal: opts.signal,
+      });
+      wakeTimer.cancel();
+      const text = await res.text();
+      const data = text ? (()=>{try{return JSON.parse(text);}catch{return {error:text};}})() : {};
+      if(!res.ok) throw Object.assign(new Error(data.error||"Upload failed"), {status:res.status,data});
+      return data;
+    }catch(e){
+      wakeTimer.cancel();
+      throw e;
+    }
   },
 };
 
@@ -2065,6 +2099,7 @@ function App(){
   const [showLogin,setShowLogin]=useState(false);
   const [showAdmin,setShowAdmin]=useState(false);
   const [isOnline,setIsOnline]=useState(navigator.onLine);
+  const [serverWaking,setServerWaking]=useState(false);
   const [ejConfig,setEjConfig]=useState({});
   const [tgConfig,setTgConfig]=useState({});
   const [bootstrapErr,setBootstrapErr]=useState("");
@@ -2084,6 +2119,15 @@ function App(){
     const on=()=>setIsOnline(true);const off=()=>setIsOnline(false);
     window.addEventListener("online",on);window.addEventListener("offline",off);
     return()=>{window.removeEventListener("online",on);window.removeEventListener("offline",off);};
+  },[]);
+
+  // Server cold-start banner
+  useEffect(()=>{
+    const show=()=>setServerWaking(true);
+    const hide=()=>setServerWaking(false);
+    window.addEventListener("ip_server_waking",show);
+    window.addEventListener("ip_server_ready",hide);
+    return()=>{window.removeEventListener("ip_server_waking",show);window.removeEventListener("ip_server_ready",hide);};
   },[]);
 
   // JWT expired — auto-logout
@@ -2119,7 +2163,8 @@ function App(){
 
   return <div style={{fontFamily:"'DM Sans',sans-serif",background:"var(--bg)",minHeight:"100vh",color:"var(--t1)",transition:"background .25s"}}>
     {!isOnline&&<div className="offline-bar">⚠ No internet connection — app requires a live connection</div>}
-    <div style={{marginTop:!isOnline?32:0}}>
+    {serverWaking&&<div className="waking-bar" style={{top:!isOnline?32:0}}><span className="waking-spinner"/><span>Server is waking up — this takes about 30 seconds on first load. Hang tight!</span></div>}
+    <div style={{marginTop:(!isOnline&&serverWaking)?64:(!isOnline||serverWaking)?32:0}}>
       <NavBar view={view} nav={nav} authUser={authUser} onSignIn={()=>setShowLogin(true)} onSignOut={handleLogout} theme={theme} setTheme={setTheme} onAdmin={()=>authUser?setShowAdmin(true):setShowLogin(true)}/>
       <div className="main-pad" style={{maxWidth:1140,margin:"0 auto"}}>
         {bootstrapErr&&<div style={{padding:"20px",background:"var(--op-bg)",borderRadius:12,color:"var(--op-fg)",marginBottom:16,fontSize:14}}>
