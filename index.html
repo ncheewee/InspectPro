@@ -78,7 +78,7 @@ const {useState,useEffect,useRef,useCallback,useReducer} = React;
 // e.g. "https://inspectpro-api.railway.app"
 const API_BASE = window.INSPECTPRO_API || "https://inspectpro-api.onrender.com";
 
-const VERSION = "v5.2.4";
+const VERSION = "v5.2.5";
 const DAYS = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
 const isAdminRole = role => role === "admin";
 const isManagerRole = role => role === "manager" || role === "admin";
@@ -108,6 +108,17 @@ const displayName=(user,allUsers)=>{
   const first=(user?.name||"").split(" ")[0];
   const collides=(allUsers||[]).some(u=>u.id!==user?.id&&u.name.split(" ")[0]===first);
   return collides?user.name:first;
+};
+// Role-based chip colours used consistently across login, roster, and home views
+const roleChipStyle=role=>{
+  if(role==="admin")   return{background:"var(--abg)",border:"1px solid var(--abd)",color:"var(--amber)"};
+  if(role==="manager") return{background:"var(--bbg)",border:"1px solid rgba(59,130,246,.35)",color:"var(--blue)"};
+  return                    {background:"var(--surf)",border:"1px solid var(--bd)",  color:"var(--t1)"};
+};
+const roleGroupHeader=role=>{
+  if(role==="admin")   return{background:"var(--abg)",border:"1px solid var(--abd)",color:"var(--amber)"};
+  if(role==="manager") return{background:"var(--bbg)",border:"1px solid rgba(59,130,246,.25)",color:"var(--blue)"};
+  return                    {background:"var(--card2)",border:"1px solid var(--bd)",color:"var(--t3)"};
 };
 
 // Simple debounce hook — returns a debounced version of value after `delay` ms
@@ -710,16 +721,26 @@ function LoginModal({users,onLogin,onClose}){
       {step==="pick"
         ?<>
           <p style={{fontSize:13,color:"var(--t3)",marginBottom:14,lineHeight:1.45}}>Tap your name to continue</p>
-          {roleGroups.map(g=><div key={g.label} style={{marginBottom:14}}>
-            <Lbl>{g.label}</Lbl>
-            <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-              {g.list.map(u=><button key={u.id} onClick={()=>selectUser(u.id)}
-                style={{display:"flex",alignItems:"center",gap:8,background:"var(--surf)",border:"1px solid var(--bd)",borderRadius:24,padding:"7px 14px 7px 7px",cursor:"pointer",color:"var(--t1)",fontWeight:600,fontSize:14,fontFamily:"'DM Sans',sans-serif",transition:"all .15s"}}>
-                <Avatar user={u} size={28}/>
-                <span>{u.name}</span>
-              </button>)}
-            </div>
-          </div>)}
+          {roleGroups.map(g=>{
+            const hdr=roleGroupHeader(g.list[0]?.role);
+            return <div key={g.label} style={{marginBottom:12,borderRadius:10,overflow:"hidden",border:hdr.border}}>
+              <div style={{background:hdr.background,padding:"5px 12px",display:"flex",alignItems:"center",gap:6}}>
+                <span style={{fontSize:11,fontWeight:700,color:hdr.color,textTransform:"uppercase",letterSpacing:".06em",fontFamily:"'DM Mono',monospace"}}>
+                  {g.label==="Admin"?"👑 ":g.label==="Manager"?"★ ":"● "}{g.label}
+                </span>
+              </div>
+              <div style={{padding:"10px 12px",display:"flex",gap:8,flexWrap:"wrap",background:"var(--card)"}}>
+                {g.list.map(u=>{
+                  const cs=roleChipStyle(u.role);
+                  return <button key={u.id} onClick={()=>selectUser(u.id)}
+                    style={{display:"flex",alignItems:"center",gap:8,...cs,borderRadius:24,padding:"7px 14px 7px 7px",cursor:"pointer",fontWeight:600,fontSize:14,fontFamily:"'DM Sans',sans-serif",transition:"all .15s"}}>
+                    <Avatar user={u} size={28}/>
+                    <span style={{color:cs.color}}>{u.name}</span>
+                  </button>;
+                })}
+              </div>
+            </div>;
+          })}
         </>
         :<>
           <div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 13px",background:"var(--surf)",borderRadius:9,border:"1px solid var(--bd)",marginBottom:20}}>
@@ -782,107 +803,97 @@ function NavBar({view,nav,authUser,onSignIn,onSignOut,theme,setTheme,onAdmin}){
 
 // ── HOME VIEW ─────────────────────────────────────────────────────────────────
 function HomeView({today,authUser,users,zones,nav,isOnline}){
-  const [rosterToday,setRosterToday]=useState([]);
-  const [stats,setStats]=useState({open:0,wkInsp:0});
+  const [weekSlotsFull,setWeekSlotsFull]=useState([]);
+  const [issues,setIssues]=useState([]);
   const [loading,setLoading]=useState(true);
   const wk=wkKey(today),dn=dowN(today),{week}=isoWk(today);
-  const activeTeam=rosterPeople(users);
-  const activeInspectors=activeTeam.filter(u=>u.role==="inspector").length;
-  const activeOps=activeTeam.filter(u=>isManagerRole(u.role)).length;
 
   useEffect(()=>{
-    if(!authUser){
-      setRosterToday([]);
-      setStats({open:0,wkInsp:0});
-      setLoading(false);
-      return;
-    }
+    if(!authUser){setWeekSlotsFull([]);setIssues([]);setLoading(false);return;}
     async function load(){
       setLoading(true);
       try{
-        const [rosterData,inspData,issuesData]=await Promise.all([
+        const [rosterData,issuesData]=await Promise.all([
           api.get(`/api/roster?week=${wk}`),
-          api.get(`/api/inspections?limit=200`),
           api.get(`/api/issues?status=open&limit=200`),
         ]);
-        setRosterToday(assignmentSlots(rosterData,dn));
-        const wkCount=inspData.filter(i=>wkKey(new Date(i.start_time))===wk).length;
-        setStats({open:issuesData.length,wkInsp:wkCount});
+        // Week slots cover all days — use weekSlots() not assignmentSlots()
+        setWeekSlotsFull(weekSlots(rosterData));
+        setIssues(issuesData);
       }catch(e){console.warn("Home load error:",e);}
       setLoading(false);
     }
     load();
-  },[wk,dn,authUser?.id,authUser?.role]);
+  },[wk,authUser?.id,authUser?.role]);
 
-  const mySlots=rosterToday.filter(s=>(s.inspectorIds||[]).includes(authUser?.id)||(s.supervisorIds||[]).includes(authUser?.id));
+  const mySlots=weekSlotsFull.filter(s=>(s.inspectorIds||[]).includes(authUser?.id)||(s.supervisorIds||[]).includes(authUser?.id));
+  const myIssues=issues.filter(i=>i.user_id===authUser?.id||i.inspector_id===authUser?.id);
+  const openCount=issues.length;
+  const myCount=myIssues.length;
 
   return <div className="fu">
+    {/* Header */}
     <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",flexWrap:"wrap",gap:12,marginBottom:20}}>
       <div>
         <Mono size={12} color="var(--t3)" style={{textTransform:"uppercase",letterSpacing:".08em",display:"block",marginBottom:4}}>{fD(today)} · {dn} · Week {week}</Mono>
         <h1 style={{fontSize:26,letterSpacing:"-.02em",marginBottom:4}}>{today.getHours()<12?"Good Morning":"Good Afternoon"} 👋</h1>
-        <p style={{color:"var(--t2)",fontSize:15}}>{activeInspectors} inspector{activeInspectors!==1?"s":""} · {activeOps} manager/admin{activeOps!==1?"s":""} · {zones.length} zone{zones.length!==1?"s":""}</p>
       </div>
-      {authUser&&<button onClick={()=>nav("inspect")} style={C.btn("pri",{padding:"11px 22px",fontSize:15,display:"flex",alignItems:"center",gap:8})}>▶ Start Inspection</button>}
+      <button onClick={()=>nav("inspect")} style={C.btn("pri",{padding:"11px 22px",fontSize:15,display:"flex",alignItems:"center",gap:8})}>▶ Start Inspection</button>
     </div>
 
     {loading?<div style={{textAlign:"center",padding:"40px"}}><Spinner size={24}/></div>:<>
-      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(145px,1fr))",gap:8,marginBottom:16}}>
-        {[
-          {l:"Open Issues",v:stats.open,c:stats.open>0?"var(--red)":"var(--green)"},
-          {l:"Inspections (Wk)",v:stats.wkInsp,c:"var(--blue)"},
-          {l:"Zones",v:zones.length,c:"var(--cyan)"},
-          {l:"Week Slots",v:rosterToday.length,c:"var(--purple)"},
-        ].map(s=><div key={s.l} style={C.card({padding:"13px 15px"})}>
-          <div style={{fontSize:24,fontWeight:600,color:s.c,fontFamily:"'DM Mono',monospace",marginBottom:3}}>{s.v}</div>
-          <Mono size={12} color="var(--t3)" style={{textTransform:"uppercase",letterSpacing:".05em"}}>{s.l}</Mono>
-        </div>)}
+
+      {/* Open Issues stat */}
+      <div style={{...C.card({marginBottom:14,padding:"14px 18px"}),display:"flex",alignItems:"center",gap:16,cursor:"pointer"}} onClick={()=>nav("tracker")}>
+        <div style={{flex:1}}>
+          <Mono size={11} color="var(--t3)" style={{textTransform:"uppercase",letterSpacing:".06em",display:"block",marginBottom:4}}>Open Issues</Mono>
+          <div style={{display:"flex",alignItems:"baseline",gap:10}}>
+            <span style={{fontSize:32,fontWeight:600,color:openCount>0?"var(--red)":"var(--green)",fontFamily:"'DM Mono',monospace"}}>{openCount}</span>
+            {openCount>0&&myCount>0&&<span style={{fontSize:13,color:"var(--op-fg)",background:"var(--op-bg)",padding:"2px 10px",borderRadius:20,fontWeight:600}}>{myCount} mine</span>}
+            {openCount===0&&<span style={{fontSize:13,color:"var(--cl-fg)",background:"var(--cl-bg)",padding:"2px 10px",borderRadius:20,fontWeight:600}}>All clear</span>}
+          </div>
+        </div>
+        <Mono size={13} color="var(--t3)">→ Tracker</Mono>
       </div>
 
-      {authUser&&<div style={C.card({marginBottom:14,border:mySlots.length?"1px solid var(--green)33":"1px solid var(--bd)"})}>
-        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:mySlots.length?12:0}}>
-          <Avatar user={authUser} size={38}/>
-          <div style={{flex:1}}>
-            <div style={{fontWeight:600,fontSize:15,color:"var(--t1)"}}>{authUser.name}</div>
-            <Mono size={12}>{authUser.role.toUpperCase()}</Mono>
+      {/* This week's roster */}
+      <div style={C.card({marginBottom:14})}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12,flexWrap:"wrap",gap:8}}>
+          <div style={{fontWeight:700,fontSize:17,color:"var(--t1)"}}>
+            This Week's Assignments
+            <Mono size={12} style={{marginLeft:8,background:"var(--surf)",padding:"3px 8px",borderRadius:20,textTransform:"uppercase"}}>WK{String(week).padStart(2,"0")}</Mono>
           </div>
-          {mySlots.length
-            ?<span style={{fontSize:13,fontWeight:700,background:"var(--cl-bg)",color:"var(--cl-fg)",padding:"5px 11px",borderRadius:20}}>✓ Assigned This Week</span>
-            :<span style={{fontSize:13,fontWeight:700,background:"var(--pd-bg)",color:"var(--pd-fg)",padding:"5px 11px",borderRadius:20}}>No assignment this week</span>}
+          <button onClick={()=>nav("roster")} style={C.btn("ghost",{padding:"5px 11px",fontSize:12})}>Edit Roster →</button>
         </div>
-        {mySlots.length>0&&<div style={{display:"flex",flexDirection:"column",gap:6}}>
-          {mySlots.map((s,i)=>{
-            const z=zones.find(z=>z.id===s.zoneId);
-            const role=(s.supervisorIds||[]).includes(authUser.id)?"Supervising":"Inspecting";
-            return <div key={i} style={{background:"var(--surf)",borderRadius:8,padding:"9px 12px",display:"flex",alignItems:"center",gap:10}}>
-              <Mono size={12} color="var(--blue)" style={{background:"var(--bbg)",padding:"3px 8px",borderRadius:5,flexShrink:0}}>{s.zoneId}</Mono>
-              <span style={{flex:1,fontSize:14,fontWeight:600,color:"var(--t1)"}}>{z?.name}</span>
-              <Mono size={11} color="var(--t3)">{role}</Mono>
-            </div>;
-          })}
-        </div>}
-      </div>}
-
-      {rosterToday.length>0&&<div style={C.card({marginBottom:14})}>
-        <div style={{fontWeight:700,fontSize:17,color:"var(--t1)",marginBottom:12}}>This Week's Roster <Mono size={12} style={{marginLeft:6,background:"var(--surf)",padding:"3px 8px",borderRadius:20,textTransform:"uppercase"}}>WK{String(week).padStart(2,"0")}</Mono></div>
-        <div style={{display:"flex",flexDirection:"column",gap:8}}>
-          {rosterToday.map((s,i)=>{
-            const z=zones.find(z=>z.id===s.zoneId);
-            const insps=(s.inspectorIds||[]).map(id=>users.find(u=>u.id===id));
-            return <div key={i} style={{background:"var(--card2)",border:"1px solid var(--bd2)",borderRadius:8,padding:"12px",display:"grid",gridTemplateColumns:"minmax(0,1fr) 116px",gap:10,alignItems:"center"}}>
-              <div style={{display:"flex",alignItems:"center",gap:9,minWidth:0}}>
+        {weekSlotsFull.length===0
+          ?<div style={{textAlign:"center",padding:"20px 0",color:"var(--t3)",fontSize:14}}>No assignments set for this week yet.</div>
+          :<div style={{display:"flex",flexDirection:"column",gap:7}}>
+            {weekSlotsFull.map((s,i)=>{
+              const z=zones.find(z=>z.id===s.zoneId);
+              const isMySlot=(s.inspectorIds||[]).includes(authUser?.id)||(s.supervisorIds||[]).includes(authUser?.id);
+              const myRole=(s.supervisorIds||[]).includes(authUser?.id)?"Supervising":"Inspecting";
+              const allPeople=[
+                ...(s.inspectorIds||[]).map(id=>({user:users.find(u=>u.id===id),role:"inspector"})),
+                ...(s.supervisorIds||[]).map(id=>({user:users.find(u=>u.id===id),role:"supervisor"})),
+              ].filter(p=>p.user);
+              return <div key={i} style={{background:isMySlot?"var(--cl-bg)":"var(--card2)",border:isMySlot?"1px solid var(--green)44":"1px solid var(--bd2)",borderRadius:9,padding:"10px 13px",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
                 <Mono size={12} color="var(--blue)" style={{background:"var(--bbg)",padding:"3px 8px",borderRadius:5,flexShrink:0}}>{s.zoneId}</Mono>
-                <span style={{fontWeight:700,fontSize:14,color:"var(--t1)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{z?.name}</span>
-              </div>
-              <div style={{display:"flex",gap:6,alignItems:"center",justifyContent:"flex-end",flexWrap:"wrap"}}>
-                {insps.map((u,j)=>u&&<div key={j} style={{minHeight:30,display:"flex",alignItems:"center",gap:6,background:"var(--surf)",border:"1px solid var(--bd)",borderRadius:20,padding:"4px 8px 4px 4px"}}>
-                  <Avatar user={u} size={22}/><span style={{fontSize:13,fontWeight:700,color:"var(--t1)"}}>{displayName(u,users)}</span>
-                </div>)}
-              </div>
-            </div>;
-          })}
-        </div>
-      </div>}
+                <span style={{flex:1,fontWeight:isMySlot?700:600,fontSize:14,color:isMySlot?"var(--cl-fg)":"var(--t1)",minWidth:80}}>{z?.name}</span>
+                {isMySlot&&<span style={{fontSize:12,fontWeight:700,color:"var(--cl-fg)",background:"var(--ok-bg)",padding:"2px 9px",borderRadius:20,flexShrink:0}}>✓ {myRole}</span>}
+                <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
+                  {allPeople.map(({user:u,role:pr},j)=>{
+                    const cs=roleChipStyle(u.role);
+                    const isMe=u.id===authUser?.id;
+                    return <div key={j} style={{display:"flex",alignItems:"center",gap:5,...cs,borderRadius:20,padding:"3px 9px 3px 4px",opacity:isMe?1:.8}}>
+                      <Avatar user={u} size={20}/><span style={{fontSize:12,fontWeight:isMe?700:600,color:cs.color}}>{displayName(u,users)}{pr==="supervisor"?" ★":""}</span>
+                    </div>;
+                  })}
+                </div>
+              </div>;
+            })}
+          </div>
+        }
+      </div>
     </>}
   </div>;
 }
@@ -1535,8 +1546,8 @@ function RosterView({users,zones,authUser,today}){
                 const sups=(s.supervisorIds||[]).map(id=>users.find(u=>u.id===id)).filter(Boolean);
                 return <div key={s.id} style={{background:"var(--surf)",borderRadius:8,padding:"8px 10px",border:"1px solid var(--bd2)"}}>
                   <div style={{display:"flex",gap:6,alignItems:"center",justifyContent:"flex-end",flexWrap:"wrap"}}>
-                    {insps.map((u,j)=><div key={j} style={{display:"flex",alignItems:"center",gap:6,background:"var(--card2)",border:"1px solid var(--bd)",borderRadius:20,padding:"4px 8px 4px 4px"}}>
-                      <Avatar user={u} size={24}/><span style={{fontSize:13,fontWeight:700,color:"var(--t1)"}}>{displayName(u,users)}</span>
+                    {insps.map((u,j)=>{const cs=roleChipStyle(u.role);return <div key={j} style={{display:"flex",alignItems:"center",gap:6,...cs,borderRadius:20,padding:"4px 8px 4px 4px"}}>
+                      <Avatar user={u} size={24}/><span style={{fontSize:13,fontWeight:700,color:cs.color}}>{displayName(u,users)}</span>
                       {completed[completionKey(u.id,zone.id)]
                         ?<span style={{fontSize:11,fontWeight:700,background:"var(--cl-bg)",color:"var(--cl-fg)",padding:"2px 7px",borderRadius:20}}>Done</span>
                         :<span style={{fontSize:11,fontWeight:700,background:"var(--pd-bg)",color:"var(--pd-fg)",padding:"2px 7px",borderRadius:20}}>Due</span>}
