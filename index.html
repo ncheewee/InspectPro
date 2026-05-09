@@ -78,7 +78,7 @@ const {useState,useEffect,useRef,useCallback,useReducer} = React;
 // e.g. "https://inspectpro-api.railway.app"
 const API_BASE = window.INSPECTPRO_API || "https://inspectpro-api.onrender.com";
 
-const VERSION = "v5.2.5";
+const VERSION = "v5.2.6";
 const DAYS = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
 const isAdminRole = role => role === "admin";
 const isManagerRole = role => role === "manager" || role === "admin";
@@ -1551,7 +1551,7 @@ function RosterView({users,zones,authUser,today}){
                       {completed[completionKey(u.id,zone.id)]
                         ?<span style={{fontSize:11,fontWeight:700,background:"var(--cl-bg)",color:"var(--cl-fg)",padding:"2px 7px",borderRadius:20}}>Done</span>
                         :<span style={{fontSize:11,fontWeight:700,background:"var(--pd-bg)",color:"var(--pd-fg)",padding:"2px 7px",borderRadius:20}}>Due</span>}
-                    </div>)}
+                    </div>;})}
                     {sups.map((u,j)=><div key={"s"+j} style={{display:"flex",alignItems:"center",gap:5,background:"var(--bbg)",border:"1px solid var(--blue)44",borderRadius:20,padding:"3px 7px 3px 3px"}}>
                       <Avatar user={u} size={20}/><Mono size={11} color="var(--blue)">{displayName(u,users)}</Mono>
                     </div>)}
