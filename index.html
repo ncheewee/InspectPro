@@ -78,7 +78,7 @@ const {useState,useEffect,useRef,useCallback,useReducer} = React;
 // e.g. "https://inspectpro-api.railway.app"
 const API_BASE = window.INSPECTPRO_API || "https://inspectpro-api.onrender.com";
 
-const VERSION = "v5.2.6";
+const VERSION = "v5.3.0";
 const DAYS = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
 const isAdminRole = role => role === "admin";
 const isManagerRole = role => role === "manager" || role === "admin";
@@ -578,16 +578,8 @@ const Mono=({children,size=12,color,style:sx={}})=>
 const Lbl=({children})=>
   <label style={{display:"block",fontSize:12,fontWeight:600,color:"var(--t3)",textTransform:"uppercase",letterSpacing:".06em",marginBottom:6,fontFamily:"'DM Mono',monospace"}}>{children}</label>;
 const Avatar=({user,size=36})=>{
-  const role=user?.role;
-  const isAdm=role==="admin";
-  const isMgr=role==="manager";
   const col=user?.color||"#3b82f6";
-  const border=isAdm||isMgr?`2px solid ${col}`:`2px solid ${col}44`;
-  const shadow=isAdm?`0 0 0 1.5px ${col}`:"none";
-  return <div style={{position:"relative",flexShrink:0,width:size,height:size,display:"inline-flex"}}>
-    <div style={{width:size,height:size,borderRadius:"50%",background:col,display:"flex",alignItems:"center",justifyContent:"center",fontSize:size*.32,fontWeight:600,color:"#fff",fontFamily:"'DM Mono',monospace",border,boxShadow:shadow}}>{user?.initials||"?"}</div>
-    {isAdm&&<span style={{position:"absolute",top:-3,right:-3,fontSize:Math.max(9,size*.28),lineHeight:1,pointerEvents:"none",filter:"drop-shadow(0 1px 2px rgba(0,0,0,.6))"}}>👑</span>}
-  </div>;
+  return <div style={{flexShrink:0,width:size,height:size,borderRadius:"50%",background:col,display:"inline-flex",alignItems:"center",justifyContent:"center",fontSize:size*.32,fontWeight:600,color:"#fff",fontFamily:"'DM Mono',monospace"}}>{user?.initials||"?"}</div>;
 };
 const Badge=({status})=>{
   const M={open:{bg:"var(--op-bg)",fg:"var(--op-fg)",l:"Open"},"in-progress":{bg:"var(--ip-bg)",fg:"var(--ip-fg)",l:"In Progress"},closed:{bg:"var(--cl-bg)",fg:"var(--cl-fg)",l:"Closed"},ok:{bg:"var(--ok-bg)",fg:"var(--ok-fg)",l:"OK"},flagged:{bg:"var(--op-bg)",fg:"var(--op-fg)",l:"Flagged"},pending:{bg:"var(--pd-bg)",fg:"var(--pd-fg)",l:"Pending"}};
@@ -708,34 +700,36 @@ function LoginModal({users,onLogin,onClose}){
     {label:"Inspector",list:loginUsers.filter(u=>u.role==="inspector")},
   ].filter(g=>g.list.length>0);
 
-  return <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.8)",backdropFilter:"blur(6px)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:500,padding:16,overflowY:"auto"}}>
-    <div style={{...C.card({background:"var(--card2)"}),maxWidth:400,width:"100%",margin:"auto"}}>
-      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20}}>
-        <div style={{display:"flex",alignItems:"center",gap:10}}>
-          <div style={{width:32,height:32,background:"var(--amber)",borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:12,color:"#fff",fontFamily:"'Syne',sans-serif"}}>IP</div>
-          <span style={{fontWeight:700,fontSize:16,color:"var(--t1)",fontFamily:"'Syne',sans-serif"}}>Log In</span>
+  return <div style={{position:"fixed",inset:0,background:"var(--bg)",display:"flex",flexDirection:"column",zIndex:500,overflowY:"auto"}}>
+    {/* Header */}
+    <div style={{background:"var(--surf)",borderBottom:"1px solid var(--bd)",padding:"12px 16px",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
+      <div style={{display:"flex",alignItems:"center",gap:8}}>
+        <div style={{width:28,height:28,background:"var(--amber)",borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:11,color:"#fff",fontFamily:"'Syne',sans-serif",flexShrink:0}}>IP</div>
+        <div>
+          <span style={{fontWeight:700,fontSize:14,color:"var(--t1)",fontFamily:"'Syne',sans-serif",letterSpacing:".02em"}}>Inspect<span style={{color:"var(--amber)"}}>Pro</span></span>
+          <Mono size={9} color="var(--t3)" style={{display:"block",letterSpacing:".06em"}}>{VERSION}</Mono>
         </div>
-        {onClose&&<button onClick={onClose} style={{background:"none",border:"none",color:"var(--t3)",cursor:"pointer",fontSize:20}}>✕</button>}
       </div>
+      {onClose&&<button onClick={onClose} style={{background:"none",border:"none",color:"var(--t3)",cursor:"pointer",fontSize:20}}>✕</button>}
+    </div>
 
+    <div style={{flex:1,padding:"16px 14px 24px",maxWidth:480,width:"100%",margin:"0 auto"}}>
       {step==="pick"
         ?<>
-          <p style={{fontSize:13,color:"var(--t3)",marginBottom:14,lineHeight:1.45}}>Tap your name to continue</p>
+          <p style={{fontSize:13,color:"var(--t3)",marginBottom:14,textAlign:"center"}}>Tap your name to continue</p>
           {roleGroups.map(g=>{
             const hdr=roleGroupHeader(g.list[0]?.role);
-            return <div key={g.label} style={{marginBottom:12,borderRadius:10,overflow:"hidden",border:hdr.border}}>
-              <div style={{background:hdr.background,padding:"5px 12px",display:"flex",alignItems:"center",gap:6}}>
-                <span style={{fontSize:11,fontWeight:700,color:hdr.color,textTransform:"uppercase",letterSpacing:".06em",fontFamily:"'DM Mono',monospace"}}>
-                  {g.label==="Admin"?"👑 ":g.label==="Manager"?"★ ":"● "}{g.label}
-                </span>
+            return <div key={g.label} style={{marginBottom:10,borderRadius:10,overflow:"hidden",border:hdr.border}}>
+              <div style={{background:hdr.background,padding:"5px 12px"}}>
+                <span style={{fontSize:10,fontWeight:700,color:hdr.color,textTransform:"uppercase",letterSpacing:".07em",fontFamily:"'DM Mono',monospace"}}>{g.label}</span>
               </div>
-              <div style={{padding:"10px 12px",display:"flex",gap:8,flexWrap:"wrap",background:"var(--card)"}}>
+              <div style={{background:"var(--card)",padding:"8px",display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
                 {g.list.map(u=>{
                   const cs=roleChipStyle(u.role);
                   return <button key={u.id} onClick={()=>selectUser(u.id)}
-                    style={{display:"flex",alignItems:"center",gap:8,...cs,borderRadius:24,padding:"7px 14px 7px 7px",cursor:"pointer",fontWeight:600,fontSize:14,fontFamily:"'DM Sans',sans-serif",transition:"all .15s"}}>
-                    <Avatar user={u} size={28}/>
-                    <span style={{color:cs.color}}>{u.name}</span>
+                    style={{display:"flex",alignItems:"center",gap:8,...cs,borderRadius:8,padding:"8px 10px",cursor:"pointer",fontWeight:600,fontSize:13,fontFamily:"'DM Sans',sans-serif",transition:"background .15s",minWidth:0}}>
+                    <Avatar user={u} size={26}/>
+                    <span style={{color:cs.color,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{u.name}</span>
                   </button>;
                 })}
               </div>
@@ -761,7 +755,6 @@ const TABS=[
   {id:"home",    l:"Home",    icon:"⌂"},
   {id:"inspect", l:"Inspect", icon:"✓"},
   {id:"tracker", l:"Tracker", icon:"◈"},
-  {id:"roster",  l:"Roster",  icon:"⊞"},
   {id:"reports", l:"Reports", icon:"📋",opsOnly:true},
 ];
 function NavBar({view,nav,authUser,onSignIn,onSignOut,theme,setTheme,onAdmin}){
@@ -801,100 +794,189 @@ function NavBar({view,nav,authUser,onSignIn,onSignOut,theme,setTheme,onAdmin}){
   </>;
 }
 
-// ── HOME VIEW ─────────────────────────────────────────────────────────────────
+// ── HOME VIEW (includes inline roster) ───────────────────────────────────────
 function HomeView({today,authUser,users,zones,nav,isOnline}){
-  const [weekSlotsFull,setWeekSlotsFull]=useState([]);
+  const [curWeek,setCurWeek]=useState(today);
+  const [rosterData,setRosterData]=useState({});
+  const [completed,setCompleted]=useState({});
   const [issues,setIssues]=useState([]);
   const [loading,setLoading]=useState(true);
-  const wk=wkKey(today),dn=dowN(today),{week}=isoWk(today);
+  const [editCell,setEditCell]=useState(null); // {slotId,zoneId} or null
+  const [ef,setEf]=useState({inspIds:[],supIds:[],zoneId:""});
+  const [showAutoPlan,setShowAutoPlan]=useState(false);
+  const canEdit=canManageOps(authUser);
 
-  useEffect(()=>{
-    if(!authUser){setWeekSlotsFull([]);setIssues([]);setLoading(false);return;}
-    async function load(){
-      setLoading(true);
-      try{
-        const [rosterData,issuesData]=await Promise.all([
-          api.get(`/api/roster?week=${wk}`),
-          api.get(`/api/issues?status=open&limit=200`),
-        ]);
-        // Week slots cover all days — use weekSlots() not assignmentSlots()
-        setWeekSlotsFull(weekSlots(rosterData));
-        setIssues(issuesData);
-      }catch(e){console.warn("Home load error:",e);}
-      setLoading(false);
-    }
-    load();
-  },[wk,authUser?.id,authUser?.role]);
+  const wk=wkKey(curWeek);
+  const {week,year}=isoWk(curWeek);
+  const isThisWeek=wkKey(today)===wk;
+  const monday=getMon(curWeek);
+  const sunday=new Date(monday);sunday.setDate(sunday.getDate()+6);
+  const fRange=`${monday.getDate()}/${monday.getMonth()+1} – ${sunday.getDate()}/${sunday.getMonth()+1}`;
+  const dn=dowN(today);
 
-  const mySlots=weekSlotsFull.filter(s=>(s.inspectorIds||[]).includes(authUser?.id)||(s.supervisorIds||[]).includes(authUser?.id));
+  const load=useCallback(async()=>{
+    if(!authUser)return;
+    setLoading(true);
+    try{
+      const [rd,insp,issuesData]=await Promise.all([
+        api.get(`/api/roster?week=${wk}`),
+        api.get(`/api/inspections?limit=300`),
+        isThisWeek?api.get(`/api/issues?status=open&limit=200`):Promise.resolve([]),
+      ]);
+      setRosterData(rd);
+      const done={};
+      insp.filter(i=>i.end_time&&wkKey(new Date(i.start_time))===wk).forEach(i=>{done[completionKey(i.user_id,i.zone_id)]=i;});
+      setCompleted(done);
+      if(isThisWeek)setIssues(issuesData);
+    }catch(e){console.warn("Home load error:",e);}
+    setLoading(false);
+  },[wk,authUser?.id,isThisWeek]);
+
+  useEffect(()=>{load();},[load]);
+
+  const slots=weekSlots(rosterData);
   const myIssues=issues.filter(i=>i.user_id===authUser?.id||i.inspector_id===authUser?.id);
   const openCount=issues.length;
   const myCount=myIssues.length;
 
+  const toggleId=(arr,id)=>arr.includes(id)?arr.filter(x=>x!==id):[...arr,id];
+
+  const saveSlot=async()=>{
+    if(!ef.zoneId)return;
+    // Build new slots array: all existing minus the one being edited, plus the new one
+    const allSlots=slots.filter(s=>s.id!==editCell?.slotId)
+      .map(s=>({day:"Week",zoneId:s.zoneId,inspectorIds:s.inspectorIds||[],supervisorIds:s.supervisorIds||[]}));
+    allSlots.push({day:"Week",zoneId:ef.zoneId,inspectorIds:ef.inspIds,supervisorIds:ef.supIds});
+    try{await api.put("/api/roster",{weekKey:wk,slots:allSlots});await load();setEditCell(null);}
+    catch(e){showToast("Save failed: "+e.message,"err");}
+  };
+
+  const deleteSlot=async(slotId)=>{
+    const allSlots=slots.filter(s=>s.id!==slotId)
+      .map(s=>({day:"Week",zoneId:s.zoneId,inspectorIds:s.inspectorIds||[],supervisorIds:s.supervisorIds||[]}));
+    try{await api.put("/api/roster",{weekKey:wk,slots:allSlots});await load();}
+    catch(e){showToast("Delete failed: "+e.message,"err");}
+  };
+
+  // Build a map of zoneId → slot for quick lookup
+  const slotByZone={};
+  slots.forEach(s=>{slotByZone[s.zoneId]=s;});
+
+  const people=rosterPeople(users);
+
   return <div className="fu">
     {/* Header */}
-    <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",flexWrap:"wrap",gap:12,marginBottom:20}}>
+    <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",flexWrap:"wrap",gap:12,marginBottom:16}}>
       <div>
-        <Mono size={12} color="var(--t3)" style={{textTransform:"uppercase",letterSpacing:".08em",display:"block",marginBottom:4}}>{fD(today)} · {dn} · Week {week}</Mono>
+        <Mono size={12} color="var(--t3)" style={{textTransform:"uppercase",letterSpacing:".08em",display:"block",marginBottom:4}}>{fD(today)} · {dn}</Mono>
         <h1 style={{fontSize:26,letterSpacing:"-.02em",marginBottom:4}}>{today.getHours()<12?"Good Morning":"Good Afternoon"} 👋</h1>
       </div>
       <button onClick={()=>nav("inspect")} style={C.btn("pri",{padding:"11px 22px",fontSize:15,display:"flex",alignItems:"center",gap:8})}>▶ Start Inspection</button>
     </div>
 
-    {loading?<div style={{textAlign:"center",padding:"40px"}}><Spinner size={24}/></div>:<>
-
-      {/* Open Issues stat */}
-      <div style={{...C.card({marginBottom:14,padding:"14px 18px"}),display:"flex",alignItems:"center",gap:16,cursor:"pointer"}} onClick={()=>nav("tracker")}>
-        <div style={{flex:1}}>
-          <Mono size={11} color="var(--t3)" style={{textTransform:"uppercase",letterSpacing:".06em",display:"block",marginBottom:4}}>Open Issues</Mono>
-          <div style={{display:"flex",alignItems:"baseline",gap:10}}>
-            <span style={{fontSize:32,fontWeight:600,color:openCount>0?"var(--red)":"var(--green)",fontFamily:"'DM Mono',monospace"}}>{openCount}</span>
-            {openCount>0&&myCount>0&&<span style={{fontSize:13,color:"var(--op-fg)",background:"var(--op-bg)",padding:"2px 10px",borderRadius:20,fontWeight:600}}>{myCount} mine</span>}
-            {openCount===0&&<span style={{fontSize:13,color:"var(--cl-fg)",background:"var(--cl-bg)",padding:"2px 10px",borderRadius:20,fontWeight:600}}>All clear</span>}
-          </div>
+    {/* Open Issues — only show for current week */}
+    {isThisWeek&&<div style={{...C.card({marginBottom:14,padding:"14px 18px"}),display:"flex",alignItems:"center",gap:16,cursor:"pointer"}} onClick={()=>nav("tracker")}>
+      <div style={{flex:1}}>
+        <Mono size={11} color="var(--t3)" style={{textTransform:"uppercase",letterSpacing:".06em",display:"block",marginBottom:4}}>Open Issues</Mono>
+        <div style={{display:"flex",alignItems:"baseline",gap:10}}>
+          <span style={{fontSize:32,fontWeight:600,color:openCount>0?"var(--red)":"var(--green)",fontFamily:"'DM Mono',monospace"}}>{openCount}</span>
+          {openCount>0&&myCount>0&&<span style={{fontSize:13,color:"var(--op-fg)",background:"var(--op-bg)",padding:"2px 10px",borderRadius:20,fontWeight:600}}>{myCount} mine</span>}
+          {openCount===0&&<span style={{fontSize:13,color:"var(--cl-fg)",background:"var(--cl-bg)",padding:"2px 10px",borderRadius:20,fontWeight:600}}>All clear</span>}
         </div>
-        <Mono size={13} color="var(--t3)">→ Tracker</Mono>
       </div>
+      <Mono size={13} color="var(--t3)">→ Tracker</Mono>
+    </div>}
 
-      {/* This week's roster */}
-      <div style={C.card({marginBottom:14})}>
-        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12,flexWrap:"wrap",gap:8}}>
-          <div style={{fontWeight:700,fontSize:17,color:"var(--t1)"}}>
-            This Week's Assignments
-            <Mono size={12} style={{marginLeft:8,background:"var(--surf)",padding:"3px 8px",borderRadius:20,textTransform:"uppercase"}}>WK{String(week).padStart(2,"0")}</Mono>
-          </div>
-          <button onClick={()=>nav("roster")} style={C.btn("ghost",{padding:"5px 11px",fontSize:12})}>Edit Roster →</button>
-        </div>
-        {weekSlotsFull.length===0
-          ?<div style={{textAlign:"center",padding:"20px 0",color:"var(--t3)",fontSize:14}}>No assignments set for this week yet.</div>
-          :<div style={{display:"flex",flexDirection:"column",gap:7}}>
-            {weekSlotsFull.map((s,i)=>{
-              const z=zones.find(z=>z.id===s.zoneId);
-              const isMySlot=(s.inspectorIds||[]).includes(authUser?.id)||(s.supervisorIds||[]).includes(authUser?.id);
-              const myRole=(s.supervisorIds||[]).includes(authUser?.id)?"Supervising":"Inspecting";
-              const allPeople=[
-                ...(s.inspectorIds||[]).map(id=>({user:users.find(u=>u.id===id),role:"inspector"})),
-                ...(s.supervisorIds||[]).map(id=>({user:users.find(u=>u.id===id),role:"supervisor"})),
-              ].filter(p=>p.user);
-              return <div key={i} style={{background:isMySlot?"var(--cl-bg)":"var(--card2)",border:isMySlot?"1px solid var(--green)44":"1px solid var(--bd2)",borderRadius:9,padding:"10px 13px",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
-                <Mono size={12} color="var(--blue)" style={{background:"var(--bbg)",padding:"3px 8px",borderRadius:5,flexShrink:0}}>{s.zoneId}</Mono>
-                <span style={{flex:1,fontWeight:isMySlot?700:600,fontSize:14,color:isMySlot?"var(--cl-fg)":"var(--t1)",minWidth:80}}>{z?.name}</span>
-                {isMySlot&&<span style={{fontSize:12,fontWeight:700,color:"var(--cl-fg)",background:"var(--ok-bg)",padding:"2px 9px",borderRadius:20,flexShrink:0}}>✓ {myRole}</span>}
-                <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
-                  {allPeople.map(({user:u,role:pr},j)=>{
-                    const cs=roleChipStyle(u.role);
-                    const isMe=u.id===authUser?.id;
-                    return <div key={j} style={{display:"flex",alignItems:"center",gap:5,...cs,borderRadius:20,padding:"3px 9px 3px 4px",opacity:isMe?1:.8}}>
-                      <Avatar user={u} size={20}/><span style={{fontSize:12,fontWeight:isMe?700:600,color:cs.color}}>{displayName(u,users)}{pr==="supervisor"?" ★":""}</span>
-                    </div>;
-                  })}
-                </div>
-              </div>;
-            })}
-          </div>
-        }
+    {/* Week navigator */}
+    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10,background:"var(--surf)",borderRadius:9,border:"1px solid var(--bd)",padding:"8px 12px"}}>
+      <button onClick={()=>setCurWeek(d=>{const dd=new Date(d);dd.setDate(dd.getDate()-7);return dd;})} style={C.btn("ghost",{padding:"4px 10px",fontSize:13})}>←</button>
+      <div style={{flex:1,textAlign:"center"}}>
+        <span style={{fontWeight:700,fontSize:14,color:"var(--t1)"}}>
+          {fRange}&nbsp;&nbsp;
+        </span>
+        <Mono size={12} color={isThisWeek?"var(--amber)":"var(--t3)"} style={{background:isThisWeek?"var(--abg)":"var(--card2)",padding:"2px 8px",borderRadius:20,textTransform:"uppercase"}}>
+          {isThisWeek?"This week":`Wk ${week}`}
+        </Mono>
       </div>
-    </>}
+      <button onClick={()=>setCurWeek(d=>{const dd=new Date(d);dd.setDate(dd.getDate()+7);return dd;})} style={C.btn("ghost",{padding:"4px 10px",fontSize:13})}>→</button>
+    </div>
+
+    {/* Auto-Plan button for managers/admins */}
+    {canEdit&&<div style={{display:"flex",justifyContent:"flex-end",marginBottom:10,gap:7}}>
+      <button onClick={()=>setShowAutoPlan(true)} style={C.btn("sec",{padding:"6px 13px",fontSize:13,display:"flex",alignItems:"center",gap:6})}>⚡ Auto-Plan</button>
+    </div>}
+
+    {loading?<div style={{textAlign:"center",padding:"40px"}}><Spinner size={24}/></div>:
+      <div style={{display:"flex",flexDirection:"column",gap:7}}>
+        {zones.map(zone=>{
+          const s=slotByZone[zone.id];
+          const isMySlot=s&&((s.inspectorIds||[]).includes(authUser?.id)||(s.supervisorIds||[]).includes(authUser?.id));
+          const inspPeople=(s?.inspectorIds||[]).map(id=>users.find(u=>u.id===id)).filter(Boolean);
+          const supPeople=(s?.supervisorIds||[]).map(id=>users.find(u=>u.id===id)).filter(Boolean);
+          const allAssigned=inspPeople.length>0||supPeople.length>0;
+
+          return <div key={zone.id} style={{background:isMySlot?"var(--cl-bg)":"var(--card)",border:isMySlot?"1px solid rgba(16,185,129,.27)":"1px solid var(--bd)",borderRadius:9,padding:"10px 12px"}}>
+            {/* Row 1: zone badge + name + edit/add */}
+            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:allAssigned?7:0}}>
+              <Mono size={11} color="var(--blue)" style={{background:"var(--bbg)",padding:"3px 7px",borderRadius:5,flexShrink:0}}>{zone.id}</Mono>
+              <span style={{flex:1,fontSize:14,fontWeight:700,color:isMySlot?"var(--cl-fg)":"var(--t1)"}}>{zone.name}</span>
+              {canEdit&&allAssigned&&<button onClick={()=>{setEf({inspIds:[...(s.inspectorIds||[])],supIds:[...(s.supervisorIds||[])],zoneId:s.zoneId});setEditCell({slotId:s.id,zoneId:s.zoneId});}} style={{background:"none",border:"none",color:"var(--t3)",cursor:"pointer",fontSize:15,padding:"0 2px",lineHeight:1}}>✎</button>}
+              {canEdit&&!allAssigned&&<button onClick={()=>{setEf({inspIds:[],supIds:[],zoneId:zone.id});setEditCell({slotId:null,zoneId:zone.id});}} style={C.btn("ghost",{padding:"3px 9px",fontSize:12})}>+ Add</button>}
+            </div>
+            {/* Row 2: chips */}
+            {allAssigned&&<div style={{display:"flex",gap:5,flexWrap:"wrap",paddingLeft:2}}>
+              {inspPeople.map((u,j)=>{
+                const isMe=u.id===authUser?.id;
+                const cs=isMe?{background:"var(--cl-bg)",border:"1px solid rgba(16,185,129,.35)",color:"var(--cl-fg)"}:roleChipStyle(u.role);
+                return <div key={j} style={{display:"flex",alignItems:"center",gap:4,...cs,borderRadius:20,padding:"4px 9px 4px 4px"}}>
+                  <Avatar user={u} size={18}/>
+                  <span style={{fontSize:12,fontWeight:600,color:cs.color}}>{displayName(u,users)}</span>
+                  {isMe&&<span style={{fontSize:10,fontWeight:700,background:"rgba(16,185,129,.2)",color:"var(--cl-fg)",padding:"1px 5px",borderRadius:10}}>me</span>}
+                  {completed[completionKey(u.id,zone.id)]
+                    ?<span style={{fontSize:10,fontWeight:700,background:"var(--cl-bg)",color:"var(--cl-fg)",padding:"1px 6px",borderRadius:10}}>Done</span>
+                    :<span style={{fontSize:10,fontWeight:700,background:"var(--pd-bg)",color:"var(--pd-fg)",padding:"1px 6px",borderRadius:10}}>Due</span>}
+                </div>;
+              })}
+              {supPeople.map((u,j)=>{
+                const isMe=u.id===authUser?.id;
+                return <div key={"s"+j} style={{display:"flex",alignItems:"center",gap:4,background:"var(--bbg)",border:"1px solid rgba(59,130,246,.35)",borderRadius:20,padding:"4px 9px 4px 4px"}}>
+                  <Avatar user={u} size={18}/>
+                  <span style={{fontSize:12,fontWeight:600,color:"var(--blue)"}}>{displayName(u,users)} ★</span>
+                  {isMe&&<span style={{fontSize:10,fontWeight:700,background:"rgba(59,130,246,.15)",color:"var(--blue)",padding:"1px 5px",borderRadius:10}}>me</span>}
+                </div>;
+              })}
+            </div>}
+          </div>;
+        })}
+      </div>
+    }
+
+    {showAutoPlan&&<AutoPlanModal users={users} zones={zones} onClose={()=>setShowAutoPlan(false)} today={curWeek} onApplied={load}/>}
+
+    {editCell&&<Modal onClose={()=>setEditCell(null)} title={editCell.slotId?"Edit Slot":"Add Slot"} maxW={460}>
+      <Lbl>Zone</Lbl>
+      <select value={ef.zoneId} onChange={e=>setEf(f=>({...f,zoneId:e.target.value}))} style={C.inp({marginBottom:12})}>
+        <option value="">— Select zone —</option>
+        {zones.map(z=><option key={z.id} value={z.id}>{z.id} – {z.name}</option>)}
+      </select>
+      <Lbl>Inspector(s)</Lbl>
+      <div style={{display:"flex",gap:7,flexWrap:"wrap",marginBottom:12}}>
+        {people.map(u=><label key={u.id} style={{display:"flex",alignItems:"center",gap:6,padding:"5px 10px",background:ef.inspIds.includes(u.id)?"var(--bbg)":"var(--surf)",border:`1px solid ${ef.inspIds.includes(u.id)?"var(--blue)":"var(--bd)"}`,borderRadius:20,cursor:"pointer"}}>
+          <input type="checkbox" checked={ef.inspIds.includes(u.id)} onChange={()=>setEf(f=>({...f,inspIds:toggleId(f.inspIds,u.id)}))} style={{accentColor:"var(--blue)"}}/>
+          <Avatar user={u} size={18}/><span style={{fontSize:13,fontWeight:600,color:"var(--t1)"}}>{displayName(u,people)}</span>
+        </label>)}
+      </div>
+      <Lbl>Supervisor (optional)</Lbl>
+      <select value={ef.supIds[0]||""} onChange={e=>setEf(f=>({...f,supIds:e.target.value?[e.target.value]:[]}))} style={C.inp({marginBottom:16})}>
+        <option value="">None</option>
+        {users.filter(u=>isManagerRole(u.role)).map(u=><option key={u.id} value={u.id}>{u.name}</option>)}
+      </select>
+      <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+        {editCell.slotId&&<button onClick={()=>deleteSlot(editCell.slotId).then(()=>setEditCell(null))} style={C.btn("dng",{marginRight:"auto"})}>Remove</button>}
+        <button onClick={()=>setEditCell(null)} style={C.btn("ghost")}>Cancel</button>
+        <button onClick={saveSlot} disabled={!ef.zoneId} style={{...C.btn("pri"),opacity:ef.zoneId?1:.35}}>Save</button>
+      </div>
+    </Modal>}
   </div>;
 }
 
@@ -2292,7 +2374,7 @@ function App(){
         {view==="home"    &&<HomeView today={today} authUser={authUser} users={users} zones={zones} nav={nav} isOnline={isOnline}/>}
         {view==="inspect" &&<InspectView authUser={authUser} zones={zones} users={users} today={today} ejConfig={ejConfig} tgConfig={tgConfig}/>}
         {view==="tracker" &&<TrackerView authUser={authUser} zones={zones}/>}
-        {view==="roster"  &&<RosterView users={users} zones={zones} authUser={authUser} today={today}/>}
+
         {view==="reports" &&canManageOps(authUser)&&<ReportsView users={users} zones={zones} authUser={authUser}/>}
       </div>
     </div>
