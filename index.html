@@ -78,7 +78,7 @@ const {useState,useEffect,useRef,useCallback,useReducer} = React;
 // e.g. "https://inspectpro-api.railway.app"
 const API_BASE = window.INSPECTPRO_API || "https://inspectpro-api.onrender.com";
 
-const VERSION = "v5.3.2";
+const VERSION = "v5.3.3";
 const DAYS = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
 const isAdminRole = role => role === "admin";
 const isManagerRole = role => role === "manager" || role === "admin";
@@ -467,11 +467,15 @@ function AutoPlanModal({users,zones,onClose,today,onApplied}) {
       // Bi-weekly manager pairs: same pair for 2 consecutive weeks
       const pairIdx=Math.floor(w/2)%numPairs;
       const thisMgrs=selMgr.slice(pairIdx*mgrPairSz,(pairIdx+1)*mgrPairSz);
-      const mgrSplit=Math.ceil(nZ/Math.max(1,thisMgrs.length));
-      const weekSlots=selZones.map((zoneId,zIdx)=>{
-        const mI=Math.min(Math.floor(zIdx/mgrSplit),thisMgrs.length-1);
-        return{zoneId,inspectorIds:thisInsp[zIdx]?[thisInsp[zIdx]]:[],supervisorIds:thisMgrs[mI]?[thisMgrs[mI]]:[]};
-      });
+      // Randomly assign each manager to one zone (only 2 zones get a manager this week)
+      const shuffled=[...selZones].sort(()=>Math.random()-.5);
+      const mgrZoneMap={};
+      thisMgrs.forEach((mId,mi)=>{if(shuffled[mi]) mgrZoneMap[shuffled[mi]]=mId;});
+      const weekSlots=selZones.map((zoneId,zIdx)=>({
+        zoneId,
+        inspectorIds:thisInsp[zIdx]?[thisInsp[zIdx]]:[],
+        supervisorIds:mgrZoneMap[zoneId]?[mgrZoneMap[zoneId]]:[],
+      }));
       plan[wk]={Week:weekSlots};
     }
     setPreview(plan);
@@ -793,7 +797,7 @@ function NavBar({view,nav,authUser,onSignIn,onSignOut,theme,setTheme,onAdmin}){
           </div>
         </div>
         <div className="top-tabs" style={{gap:2,flex:1,overflowX:"auto"}}>
-          {navTabs.map(t=>{const active=!t.menu&&view===t.id;return <button key={t.id} onClick={()=>t.menu?onAdmin():nav(t.id)} style={{background:active?"var(--abg)":"transparent",border:active?"1px solid var(--abd)":"1px solid transparent",color:active?"var(--amber)":"var(--t2)",borderRadius:7,padding:"6px 13px",fontSize:13,fontWeight:600,cursor:"pointer",transition:"all .15s",whiteSpace:"nowrap"}}>{t.l}</button>;})}
+          {navTabs.map(t=>{const active=!t.menu&&view===t.id;return <button key={t.id} onClick={()=>t.menu?onAdmin():nav(t.id)} style={{background:active?"var(--abg)":"transparent",border:active?"1px solid var(--abd)":"1px solid transparent",color:active?"var(--amber)":"var(--t2)",borderRadius:7,padding:"6px 13px",fontSize:20,fontWeight:600,cursor:"pointer",transition:"all .15s",whiteSpace:"nowrap"}}>{t.l}</button>;})}
         </div>
         <div style={{display:"flex",gap:4,alignItems:"center",flexShrink:0,marginLeft:"auto"}}>
           <button onClick={()=>setTheme(t=>t==="dark"?"light":"dark")} style={{background:"none",border:"none",cursor:"pointer",fontSize:16,padding:"5px",lineHeight:1}}>{theme==="dark"?"☀️":"🌙"}</button>
@@ -809,8 +813,8 @@ function NavBar({view,nav,authUser,onSignIn,onSignOut,theme,setTheme,onAdmin}){
     </nav>
     <div className="bottom-nav">
       {navTabs.map(t=>{const active=!t.menu&&view===t.id;return <button key={t.id} onClick={()=>t.menu?onAdmin():nav(t.id)} style={{flex:1,border:"none",background:"transparent",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"12px 2px 10px",gap:4,color:active?"var(--amber)":"var(--t3)",transition:"color .15s",borderTop:active?"2px solid var(--amber)":"2px solid transparent",fontFamily:"'DM Sans',sans-serif",minWidth:0}}>
-        <span style={{fontSize:18,lineHeight:1}}>{t.icon}</span>
-        <span style={{fontSize:11,fontWeight:active?700:600,lineHeight:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:"100%"}}>{t.l}</span>
+        <span style={{fontSize:27,lineHeight:1}}>{t.icon}</span>
+        <span style={{fontSize:17,fontWeight:active?700:600,lineHeight:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:"100%"}}>{t.l}</span>
       </button>;})}
     </div>
   </>;
