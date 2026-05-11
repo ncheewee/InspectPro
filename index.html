@@ -78,7 +78,7 @@ const {useState,useEffect,useRef,useCallback,useReducer} = React;
 // e.g. "https://inspectpro-api.railway.app"
 const API_BASE = window.INSPECTPRO_API || "https://inspectpro-api.onrender.com";
 
-const VERSION = "v5.3.1";
+const VERSION = "v5.3.2";
 const DAYS = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
 const isAdminRole = role => role === "admin";
 const isManagerRole = role => role === "manager" || role === "admin";
@@ -433,34 +433,46 @@ function Lightbox({items, startIdx=0, onClose}) {
 
 // ── AUTO-PLAN MODAL ───────────────────────────────────────────────────────────
 function AutoPlanModal({users,zones,onClose,today,onApplied}) {
-  const inspectors = rosterPeople(users);
+  const inspectors = users.filter(u=>u.role==="inspector").sort((a,b)=>a.name.localeCompare(b.name));
+  const managers   = users.filter(u=>u.role==="manager"||u.role==="admin").sort((a,b)=>a.name.localeCompare(b.name));
   const [startDate,setStartDate] = useState(()=>{
     const d=getMon(today);d.setDate(d.getDate()+7);return d.toISOString().split("T")[0];
   });
   const weeksLeft = Math.max(1, Math.ceil((new Date(today.getFullYear(),11,28) - getMon(today)) / (7*86400000)));
-  const [numWeeks,setNumWeeks]   = useState(weeksLeft);
-  const [selInsp,setSelInsp]     = useState(inspectors.map(u=>u.id));
-  const [selZones,setSelZones]   = useState(zones.slice(0,5).map(z=>z.id));
-  const [preview,setPreview]     = useState(null);
-  const [saving,setSaving]       = useState(false);
-  const [done,setDone]           = useState(false);
-  const [err,setErr]             = useState("");
+  const [numWeeks,setNumWeeks] = useState(weeksLeft);
+  const [selInsp,setSelInsp]   = useState(inspectors.map(u=>u.id));
+  const [selMgr,setSelMgr]     = useState(managers.map(u=>u.id));
+  const [selZones,setSelZones]  = useState(zones.slice(0,5).map(z=>z.id));
+  const [preview,setPreview]   = useState(null);
+  const [saving,setSaving]     = useState(false);
+  const [done,setDone]         = useState(false);
+  const [err,setErr]           = useState("");
   const toggleArr=(arr,v)=>arr.includes(v)?arr.filter(x=>x!==v):[...arr,v];
 
   const generate=()=>{
     if(!selInsp.length||!selZones.length) return;
     const plan={};
     const start=getMon(new Date(startDate+"T00:00:00"));
+    const nZ=selZones.length;
+    // Carry-forward: unused inspectors (after nZ assigned) move to front of queue next week
+    let inspQ=[...selInsp];
+    const mgrPairSz=2;
+    const numPairs=Math.max(1,Math.ceil(selMgr.length/mgrPairSz));
     for(let w=0;w<numWeeks;w++){
       const d=new Date(start);d.setDate(d.getDate()+w*7);
       const wk=wkKey(d);
-      plan[wk]={};
-      const weekSlots=selInsp.map((inspId,iIdx)=>({
-        inspectorIds:[inspId],
-        supervisorIds:[],
-        zoneId:selZones[(iIdx+w)%selZones.length],
-      }));
-      plan[wk].Week=weekSlots;
+      // Assign first nZ from queue; rotate unused to front for next week
+      const thisInsp=inspQ.slice(0,nZ);
+      inspQ=[...inspQ.slice(nZ),...inspQ.slice(0,nZ)];
+      // Bi-weekly manager pairs: same pair for 2 consecutive weeks
+      const pairIdx=Math.floor(w/2)%numPairs;
+      const thisMgrs=selMgr.slice(pairIdx*mgrPairSz,(pairIdx+1)*mgrPairSz);
+      const mgrSplit=Math.ceil(nZ/Math.max(1,thisMgrs.length));
+      const weekSlots=selZones.map((zoneId,zIdx)=>{
+        const mI=Math.min(Math.floor(zIdx/mgrSplit),thisMgrs.length-1);
+        return{zoneId,inspectorIds:thisInsp[zIdx]?[thisInsp[zIdx]]:[],supervisorIds:thisMgrs[mI]?[thisMgrs[mI]]:[]};
+      });
+      plan[wk]={Week:weekSlots};
     }
     setPreview(plan);
   };
@@ -487,11 +499,11 @@ function AutoPlanModal({users,zones,onClose,today,onApplied}) {
       ?<div style={{textAlign:"center",padding:"24px 0"}}>
         <div style={{fontSize:36,marginBottom:12}}>✅</div>
         <div style={{fontWeight:600,fontSize:16,color:"var(--t1)",marginBottom:6}}>Plan applied!</div>
-        <p style={{fontSize:15,color:"var(--t2)",marginBottom:20}}>{numWeeks} weeks · {selInsp.length} people across {selZones.length} zones.</p>
+        <p style={{fontSize:15,color:"var(--t2)",marginBottom:20}}>{numWeeks} wks · {selInsp.length} inspectors across {selZones.length} zones · {selMgr.length} managers (bi-weekly).</p>
         <button onClick={onClose} style={C.btn("pri",{padding:"10px 24px"})}>Done</button>
       </div>
       :<>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:16}}>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:14}}>
           <div><Lbl>Starting Week</Lbl><input type="date" value={startDate} onChange={e=>setStartDate(e.target.value)} style={C.inp()}/></div>
           <div><Lbl>Duration</Lbl>
             <select value={numWeeks} onChange={e=>setNumWeeks(Number(e.target.value))} style={C.inp()}>
@@ -499,40 +511,50 @@ function AutoPlanModal({users,zones,onClose,today,onApplied}) {
             </select>
           </div>
         </div>
-        <div style={{background:"var(--abg)",border:"1px solid var(--abd)",borderRadius:8,padding:"11px 14px",marginBottom:16,fontSize:14,color:"var(--t2)",lineHeight:1.5}}>
-          Each person gets one zone per week and may complete it on any working day in that week. The rotation avoids the same person/zone pairing until the 5-week cycle repeats.
+        <div style={{background:"var(--card2)",border:"1px solid var(--bd)",borderRadius:8,padding:"10px 13px",marginBottom:14,fontSize:13,color:"var(--t2)",lineHeight:1.6}}>
+          <span style={{color:"var(--t1)",fontWeight:600}}>Inspector rotation:</span> {selInsp.length} inspectors cover {selZones.length} zones/wk — the {Math.max(0,selInsp.length-selZones.length)} unused carry forward as priority next week.<br/>
+          <span style={{color:"var(--blue)",fontWeight:600}}>Manager rotation:</span> {selMgr.length} managers split into pairs of 2, each pair assigned as supervisors for 2 consecutive weeks.
         </div>
-        <Lbl>People to rotate</Lbl>
+
+        <Lbl>Inspectors ({selInsp.length} selected)</Lbl>
         <div style={{display:"flex",gap:7,flexWrap:"wrap",marginBottom:14}}>
-          {inspectors.map(u=><label key={u.id} style={{display:"flex",alignItems:"center",gap:6,padding:"5px 10px",background:selInsp.includes(u.id)?"var(--bbg)":"var(--surf)",border:`1px solid ${selInsp.includes(u.id)?"var(--blue)":"var(--bd)"}`,borderRadius:20,cursor:"pointer"}}>
-            <input type="checkbox" checked={selInsp.includes(u.id)} onChange={()=>setSelInsp(a=>toggleArr(a,u.id))} style={{accentColor:"var(--blue)",width:13,height:13}}/>
+          {inspectors.map(u=><label key={u.id} style={{display:"flex",alignItems:"center",gap:6,padding:"5px 10px",background:selInsp.includes(u.id)?"var(--surf)":"var(--card2)",border:`1px solid ${selInsp.includes(u.id)?"var(--bd2)":"var(--bd)"}`,borderRadius:20,cursor:"pointer"}}>
+            <input type="checkbox" checked={selInsp.includes(u.id)} onChange={()=>setSelInsp(a=>toggleArr(a,u.id))} style={{accentColor:"var(--t2)",width:13,height:13}}/>
             <Avatar user={u} size={20}/>
             <span style={{fontSize:13,fontWeight:600,color:"var(--t1)"}}>{displayName(u,inspectors)}</span>
           </label>)}
         </div>
-        <Lbl>Zones to rotate ({selZones.length} selected)</Lbl>
-        <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:14}}>
+
+        <Lbl>Managers ({selMgr.length} selected — bi-weekly, 2 per week)</Lbl>
+        <div style={{display:"flex",gap:7,flexWrap:"wrap",marginBottom:14}}>
+          {managers.map(u=><label key={u.id} style={{display:"flex",alignItems:"center",gap:6,padding:"5px 10px",background:selMgr.includes(u.id)?"var(--bbg)":"var(--card2)",border:`1px solid ${selMgr.includes(u.id)?"var(--blue)":"var(--bd)"}`,borderRadius:20,cursor:"pointer"}}>
+            <input type="checkbox" checked={selMgr.includes(u.id)} onChange={()=>setSelMgr(a=>toggleArr(a,u.id))} style={{accentColor:"var(--blue)",width:13,height:13}}/>
+            <Avatar user={u} size={20}/>
+            <span style={{fontSize:13,fontWeight:600,color:"var(--blue)"}}>{displayName(u,managers)}</span>
+          </label>)}
+        </div>
+
+        <Lbl>Zones ({selZones.length} selected)</Lbl>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:16}}>
           {zones.map(z=><button key={z.id} onClick={()=>setSelZones(a=>toggleArr(a,z.id))} style={{...C.btn(selZones.includes(z.id)?"pri":"ghost",{padding:"5px 9px",fontSize:12})}}>{z.id}</button>)}
         </div>
-        <div style={{background:"var(--bbg)",border:"1px solid var(--blue)22",borderRadius:8,padding:"10px 13px",marginBottom:16,fontSize:13,color:"var(--t2)"}}>
-          <strong style={{color:"var(--t1)"}}>Default team:</strong> 3 inspectors + 2 manager/admin users cover 5 zones each week.
-        </div>
+
         {preview&&<div style={{background:"var(--gbg)",border:"1px solid var(--green)33",borderRadius:8,padding:"12px 14px",marginBottom:14,fontSize:13}}>
-          <div style={{fontWeight:700,color:"var(--t1)",marginBottom:10}}>✓ Preview — {Object.keys(preview).length} weeks · {selInsp.length} people × {selZones.length} zones</div>
-          <div style={{maxHeight:220,overflowY:"auto",display:"flex",flexDirection:"column",gap:6}}>
+          <div style={{fontWeight:700,color:"var(--t1)",marginBottom:10}}>✓ Preview — {Object.keys(preview).length} weeks</div>
+          <div style={{maxHeight:240,overflowY:"auto",display:"flex",flexDirection:"column",gap:8}}>
             {Object.entries(preview).map(([wk,wkData])=>{
               const slots=wkData.Week||[];
-              return <div key={wk} style={{display:"flex",gap:6,alignItems:"flex-start",flexWrap:"wrap"}}>
-                <Mono size={11} style={{background:"var(--surf)",padding:"3px 7px",borderRadius:5,flexShrink:0,lineHeight:"22px"}}>{wk}</Mono>
+              return <div key={wk}>
+                <Mono size={11} style={{background:"var(--surf)",padding:"2px 7px",borderRadius:5,display:"inline-block",marginBottom:4}}>{wk}</Mono>
                 <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
                   {slots.map((s,i)=>{
-                    const u=users.find(uu=>uu.id===s.inspectorIds?.[0]);
-                    const z=zones.find(zz=>zz.id===s.zoneId);
-                    return u&&z?<div key={i} style={{display:"flex",alignItems:"center",gap:5,background:"var(--surf)",border:"1px solid var(--bd)",borderRadius:20,padding:"3px 8px 3px 4px"}}>
-                      <Avatar user={u} size={18}/>
-                      <span style={{fontSize:12,fontWeight:600,color:"var(--t1)"}}>{displayName(u,users)}</span>
-                      <Mono size={11} color="var(--blue)" style={{background:"var(--bbg)",padding:"1px 5px",borderRadius:4}}>{s.zoneId}</Mono>
-                    </div>:null;
+                    const insp=users.find(uu=>uu.id===s.inspectorIds?.[0]);
+                    const supv=users.find(uu=>uu.id===s.supervisorIds?.[0]);
+                    return <div key={i} style={{display:"flex",alignItems:"center",gap:4,background:"var(--surf)",border:"1px solid var(--bd)",borderRadius:6,padding:"3px 8px 3px 4px"}}>
+                      <Mono size={11} color="var(--blue)" style={{background:"var(--bbg)",padding:"1px 4px",borderRadius:3,flexShrink:0}}>{s.zoneId}</Mono>
+                      {insp&&<><Avatar user={insp} size={16}/><span style={{fontSize:11,color:"var(--t1)"}}>{displayName(insp,users)}</span></>}
+                      {supv&&<><span style={{fontSize:10,color:"var(--t3)",margin:"0 2px"}}>/</span><span style={{fontSize:10,color:"var(--blue)"}}>{displayName(supv,users)}</span></>}
+                    </div>;
                   })}
                 </div>
               </div>;
@@ -2148,7 +2170,13 @@ function AdminPanel({authUser,users,setUsers,zones,setZones,onClose,ejConfig,set
           </div>
           :<div key={u.id} style={{display:"flex",alignItems:"center",gap:10,background:"var(--surf)",border:"1px solid var(--bd)",borderRadius:10,padding:"10px 13px"}}>
             <Avatar user={u} size={34}/>
-            <div style={{flex:1,minWidth:0}}><div style={{fontWeight:600,fontSize:14,color:"var(--t1)"}}>{u.name}</div><Mono size={11}>{u.role.toUpperCase()}{u.email?` · ${u.email}`:""}</Mono></div>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap",marginBottom:2}}>
+                <div style={{fontWeight:600,fontSize:14,color:"var(--t1)"}}>{u.name}</div>
+                <span style={{...roleChipStyle(u.role),borderRadius:5,padding:"1px 7px",fontSize:11,fontWeight:700,fontFamily:"'DM Mono',monospace",whiteSpace:"nowrap"}}>{u.role.toUpperCase()}</span>
+              </div>
+              {u.email&&<Mono size={11} style={{display:"block",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{u.email}</Mono>}
+            </div>
             <div style={{display:"flex",gap:5,flexShrink:0}}>
               <button onClick={()=>setEditingUser({...u})} style={C.btn("ghost",{padding:"4px 9px",fontSize:12})}>Edit</button>
               <button onClick={()=>resetPin(u.id)} style={C.btn("sec",{padding:"4px 9px",fontSize:12})}>↺ PIN</button>
