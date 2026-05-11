@@ -40,7 +40,7 @@
 }
 *{box-sizing:border-box;margin:0;padding:0;}
 html,body,#root{width:100%;max-width:100%;overflow-x:hidden;}
-html{font-size:17px;}
+html{font-size:18px;}
 body{background:var(--bg);font-family:'DM Sans',sans-serif;color:var(--t1);-webkit-font-smoothing:antialiased;transition:background .25s,color .25s;}
 h1,h2,h3{font-family:'Syne',sans-serif;font-weight:700;}
 ::-webkit-scrollbar{width:4px;height:4px;}::-webkit-scrollbar-track{background:var(--surf);}::-webkit-scrollbar-thumb{background:var(--bd2);border-radius:3px;}
@@ -78,7 +78,7 @@ const {useState,useEffect,useRef,useCallback,useReducer} = React;
 // e.g. "https://inspectpro-api.railway.app"
 const API_BASE = window.INSPECTPRO_API || "https://inspectpro-api.onrender.com";
 
-const VERSION = "v5.3.0";
+const VERSION = "v5.3.1";
 const DAYS = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
 const isAdminRole = role => role === "admin";
 const isManagerRole = role => role === "manager" || role === "admin";
@@ -562,7 +562,7 @@ const C={
   card:(x={})=>({background:"var(--card)",border:"1px solid var(--bd)",borderRadius:12,padding:"18px 20px",...x}),
   inp:(x={})=>({background:"var(--inp)",border:"1px solid var(--bd2)",borderRadius:8,padding:"9px 12px",color:"var(--t1)",fontSize:14,width:"100%",...x}),
   btn:(v="pri",x={})=>{
-    const b={border:"none",borderRadius:8,padding:"9px 18px",fontSize:14,fontWeight:600,cursor:"pointer",transition:"all .15s",fontFamily:"'DM Sans',sans-serif",...x};
+    const b={border:"none",borderRadius:8,padding:"9px 18px",fontSize:15,fontWeight:600,cursor:"pointer",transition:"all .15s",fontFamily:"'DM Sans',sans-serif",...x};
     if(v==="pri")  return{...b,background:"var(--amber)",color:"#fff"};
     if(v==="sec")  return{...b,background:"var(--card2)",color:"var(--t1)",border:"1px solid var(--bd2)"};
     if(v==="dng")  return{...b,background:"var(--op-bg)",color:"var(--op-fg)"};
@@ -573,10 +573,10 @@ const C={
 };
 
 // ── ATOMS ─────────────────────────────────────────────────────────────────────
-const Mono=({children,size=12,color,style:sx={}})=>
+const Mono=({children,size=13,color,style:sx={}})=>
   <span style={{fontFamily:"'DM Mono',monospace",fontSize:size,color:color||"var(--t3)",lineHeight:1.4,...sx}}>{children}</span>;
 const Lbl=({children})=>
-  <label style={{display:"block",fontSize:12,fontWeight:600,color:"var(--t3)",textTransform:"uppercase",letterSpacing:".06em",marginBottom:6,fontFamily:"'DM Mono',monospace"}}>{children}</label>;
+  <label style={{display:"block",fontSize:13,fontWeight:600,color:"var(--t3)",textTransform:"uppercase",letterSpacing:".06em",marginBottom:6,fontFamily:"'DM Mono',monospace"}}>{children}</label>;
 const Avatar=({user,size=36})=>{
   const col=user?.color||"#3b82f6";
   return <div style={{flexShrink:0,width:size,height:size,borderRadius:"50%",background:col,display:"inline-flex",alignItems:"center",justifyContent:"center",fontSize:size*.32,fontWeight:600,color:"#fff",fontFamily:"'DM Mono',monospace"}}>{user?.initials||"?"}</div>;
@@ -584,7 +584,7 @@ const Avatar=({user,size=36})=>{
 const Badge=({status})=>{
   const M={open:{bg:"var(--op-bg)",fg:"var(--op-fg)",l:"Open"},"in-progress":{bg:"var(--ip-bg)",fg:"var(--ip-fg)",l:"In Progress"},closed:{bg:"var(--cl-bg)",fg:"var(--cl-fg)",l:"Closed"},ok:{bg:"var(--ok-bg)",fg:"var(--ok-fg)",l:"OK"},flagged:{bg:"var(--op-bg)",fg:"var(--op-fg)",l:"Flagged"},pending:{bg:"var(--pd-bg)",fg:"var(--pd-fg)",l:"Pending"}};
   const s=M[status]||M.pending;
-  return <span style={{display:"inline-flex",alignItems:"center",gap:5,background:s.bg,color:s.fg,fontSize:11,fontWeight:600,fontFamily:"'DM Mono',monospace",padding:"3px 9px",borderRadius:20,textTransform:"uppercase",letterSpacing:".05em",flexShrink:0,whiteSpace:"nowrap"}}>
+  return <span style={{display:"inline-flex",alignItems:"center",gap:5,background:s.bg,color:s.fg,fontSize:13,fontWeight:600,fontFamily:"'DM Mono',monospace",padding:"3px 9px",borderRadius:20,textTransform:"uppercase",letterSpacing:".05em",flexShrink:0,whiteSpace:"nowrap"}}>
     <span style={{width:6,height:6,borderRadius:"50%",background:s.fg,flexShrink:0}}/>{s.l}
   </span>;
 };
@@ -1210,9 +1210,10 @@ function ZoneStep({inspection,updateItem,addMedia,removeMedia,onFinish,onCancel,
               <button onClick={()=>updateItem(item.id,{status:"ok"})} style={{width:32,height:32,borderRadius:7,cursor:"pointer",fontSize:14,border:`1px solid ${item.status==="ok"?"var(--green)":"var(--bd2)"}`,background:item.status==="ok"?"var(--green)":"transparent",color:item.status==="ok"?"#fff":"var(--t3)",display:"flex",alignItems:"center",justifyContent:"center",transition:"all .15s"}} title="OK">✓</button>
               <button onClick={()=>updateItem(item.id,{status:item.status==="flagged"?"pending":"flagged"})} style={{width:32,height:32,borderRadius:7,cursor:"pointer",fontSize:14,border:`1px solid ${item.status==="flagged"?"var(--red)":"var(--bd2)"}`,background:item.status==="flagged"?"var(--red)":"transparent",color:item.status==="flagged"?"#fff":"var(--t3)",display:"flex",alignItems:"center",justifyContent:"center",transition:"all .15s"}} title="Flag">!</button>
             </div>
-            <div style={{flex:1}}>
-              <div style={{display:"flex",alignItems:"center",gap:8}}>
-                <div style={{fontSize:15,fontWeight:600,color:"var(--t1)",lineHeight:1.4,flex:1}}>{item.label}</div>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                <div style={{fontSize:15,fontWeight:600,color:"var(--t1)",lineHeight:1.4,flex:1,minWidth:0}}>{item.label}</div>
+                <Badge status={item.status}/>
                 {item.status==="ok"&&<button onClick={()=>toggleExpand(item.id)} style={C.btn("ghost",{padding:"3px 9px",fontSize:12,color:"var(--t3)",flexShrink:0})}>{expandedOk.has(item.id)?"▲ Hide":"▼ Notes"}</button>}
               </div>
               {(item.status==="flagged"||(item.status==="ok"&&expandedOk.has(item.id)))&&<textarea
@@ -1241,7 +1242,6 @@ function ZoneStep({inspection,updateItem,addMedia,removeMedia,onFinish,onCancel,
                 })}
               </div>}
             </div>
-            <Badge status={item.status}/>
           </div>
         </div>;
       })}
@@ -1774,8 +1774,7 @@ function ReportsView({users,zones,authUser}){
   const [selDetail,setSelDetail]=useState(null);
   const [loadingDetail,setLoadingDetail]=useState(false);
   const [err,setErr]=useState("");
-  const [resending,setResending]=useState(null);
-  const [resendMsg,setResendMsg]=useState("");
+  const [deleting,setDeleting]=useState(null);
   const [lightbox,setLightbox]=useState(null);
   const openLightbox=(items,idx=0)=>setLightbox({items,idx});
   const submitted=inspections.filter(i=>i.report_sent&&i.end_time);
@@ -1794,28 +1793,17 @@ function ReportsView({users,zones,authUser}){
     setLoadingDetail(false);
   };
 
-  const resend=async(rec,e)=>{
+  const deleteInspection=async(rec,e)=>{
     e.stopPropagation();
-    if(!selDetail) return;
-    if(!await showConfirm("Re-send this inspection report by email?"))return;
-    setResending(rec.id);setResendMsg("");
+    if(!await showConfirm(`Delete this inspection report by ${rec.user_name} (${fD(rec.start_time)})? This cannot be undone.`))return;
+    setDeleting(rec.id);
     try{
-      const cfg=await api.get("/api/config");
-      const content=await buildEmailContent(selDetail,users,zones);
-      const inspector=users.find(u=>u.id===rec.user_id);
-      const subj=`InspectPro Report – ${inspector?.name||rec.user_name} – ${fD(rec.start_time)}`;
-      const targets=[];
-      if(inspector?.email?.trim()) targets.push({email:inspector.email.trim(),name:inspector.name,subj});
-      users.filter(u=>isManagerRole(u.role)&&u.email?.trim()).forEach(m=>{
-        if(!targets.find(t=>t.email===m.email.trim()))
-          targets.push({email:m.email.trim(),name:m.name,subj:`[InspectPro] ${subj}`});
-      });
-      if(targets.length===0){setResendMsg("⚠ No email addresses configured.");setResending(null);return;}
-      const results=await Promise.allSettled(targets.map(t=>sendEmail(t.email,t.name,t.subj,content,cfg)));
-      const ok=results.filter(r=>r.status==="fulfilled"&&r.value?.ok).length;
-      setResendMsg(ok>0?`✅ Sent to ${targets.map(t=>t.email).join(", ")}`:`⚠ Email not sent (check EmailJS config in Menu → Email)`);
-    }catch(ex){setResendMsg("❌ "+ex.message);}
-    setResending(null);
+      await api.delete(`/api/inspections/${rec.id}`);
+      setInspections(prev=>prev.filter(i=>i.id!==rec.id));
+      setSel(null);setSelDetail(null);
+      showToast("Inspection deleted","ok");
+    }catch(ex){showToast("Delete failed: "+ex.message,"err");}
+    setDeleting(null);
   };
 
   const loadMonthly=async()=>{
@@ -1884,7 +1872,6 @@ function ReportsView({users,zones,authUser}){
         {[{l:"Inspections",v:monthly.summary.inspections},{l:"Zones",v:monthly.summary.zones_covered},{l:"Flags",v:monthly.summary.flagged_items},{l:"Issues",v:(monthly.issues||[]).length}].map(s=><div key={s.l} style={{background:"var(--surf)",border:"1px solid var(--bd)",borderRadius:9,padding:"10px 12px"}}><div style={{fontSize:22,fontWeight:800,color:"var(--amber)"}}>{s.v}</div><Mono size={11}>{s.l}</Mono></div>)}
       </div>}
     </div>}
-    {resendMsg&&<div style={{padding:"9px 13px",borderRadius:8,fontSize:13,marginBottom:12,background:resendMsg.startsWith("✅")?"var(--cl-bg)":"var(--ip-bg)",color:resendMsg.startsWith("✅")?"var(--cl-fg)":"var(--ip-fg)"}}>{resendMsg}</div>}
     {submitted.length===0
       ?<div style={{textAlign:"center",padding:"46px 20px",border:"1px solid var(--bd)",borderRadius:12,background:"var(--card)"}}>
         <div style={{fontSize:36,marginBottom:14}}>📋</div>
@@ -1915,8 +1902,8 @@ function ReportsView({users,zones,authUser}){
             {loadingDetail?<div style={{textAlign:"center",padding:"24px"}}><Spinner size={20}/></div>:selDetail&&
               <div>
                 {canManageConfig(authUser)&&<div style={{display:"flex",justifyContent:"flex-end",marginBottom:14}}>
-                  <button onClick={e=>resend(rec,e)} disabled={!!resending} style={{...C.btn("sec",{padding:"7px 14px",fontSize:13,display:"flex",alignItems:"center",gap:6}),opacity:resending?0.5:1}}>
-                    {resending===rec.id?<><Spinner size={13}/>Sending…</>:"📤 Re-send Email"}
+                  <button onClick={e=>deleteInspection(rec,e)} disabled={!!deleting} style={{...C.btn("dng",{padding:"7px 14px",fontSize:13,display:"flex",alignItems:"center",gap:6}),opacity:deleting?0.5:1}}>
+                    {deleting===rec.id?<><Spinner size={13}/>Deleting…</>:"🗑 Delete Report"}
                   </button>
                 </div>}
                 <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(120px,1fr))",gap:8,marginBottom:16}}>
