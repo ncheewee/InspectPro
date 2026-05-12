@@ -111,9 +111,9 @@ const displayName=(user,allUsers)=>{
 };
 // Role-based chip colours used consistently across login, roster, and home views
 const roleChipStyle=role=>{
-  if(role==="admin")   return{background:"var(--abg)",color:"var(--amber)"};
-  if(role==="manager") return{background:"var(--bbg)",color:"var(--blue)"};
-  return                    {background:"#e5e7eb",color:"#374151"};
+  if(role==="admin")   return{background:"var(--abg)",color:"var(--amber)",border:"none"};
+  if(role==="manager") return{background:"var(--bbg)",color:"var(--blue)",border:"none"};
+  return                    {background:"#e5e7eb",color:"#374151",border:"none"};
 };
 const roleGroupHeader=role=>{
   if(role==="admin")   return{background:"var(--abg)",border:"1px solid var(--abd)",color:"var(--amber)"};
