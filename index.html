@@ -78,7 +78,7 @@ const {useState,useEffect,useRef,useCallback,useReducer} = React;
 // e.g. "https://inspectpro-api.railway.app"
 const API_BASE = window.INSPECTPRO_API || "https://inspectpro-api.onrender.com";
 
-const VERSION = "v5.3.3";
+const VERSION = "v5.3.4";
 const DAYS = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
 const isAdminRole = role => role === "admin";
 const isManagerRole = role => role === "manager" || role === "admin";
@@ -111,9 +111,9 @@ const displayName=(user,allUsers)=>{
 };
 // Role-based chip colours used consistently across login, roster, and home views
 const roleChipStyle=role=>{
-  if(role==="admin")   return{background:"var(--abg)",border:"1px solid var(--abd)",color:"var(--amber)"};
-  if(role==="manager") return{background:"var(--bbg)",border:"1px solid rgba(59,130,246,.35)",color:"var(--blue)"};
-  return                    {background:"var(--surf)",border:"1px solid var(--bd)",  color:"var(--t1)"};
+  if(role==="admin")   return{background:"var(--abg)",color:"var(--amber)"};
+  if(role==="manager") return{background:"var(--bbg)",color:"var(--blue)"};
+  return                    {background:"#e5e7eb",color:"#374151"};
 };
 const roleGroupHeader=role=>{
   if(role==="admin")   return{background:"var(--abg)",border:"1px solid var(--abd)",color:"var(--amber)"};
@@ -847,16 +847,16 @@ function HomeView({today,authUser,users,zones,nav,isOnline}){
       const [rd,insp,issuesData]=await Promise.all([
         api.get(`/api/roster?week=${wk}`),
         api.get(`/api/inspections?limit=300`),
-        isThisWeek?api.get(`/api/issues?status=open&limit=200`):Promise.resolve([]),
+        api.get(`/api/issues?status=open&limit=200`),
       ]);
       setRosterData(rd);
       const done={};
       insp.filter(i=>i.end_time&&wkKey(new Date(i.start_time))===wk).forEach(i=>{done[completionKey(i.user_id,i.zone_id)]=i;});
       setCompleted(done);
-      if(isThisWeek)setIssues(issuesData);
+      setIssues(issuesData);
     }catch(e){console.warn("Home load error:",e);}
     setLoading(false);
-  },[wk,authUser?.id,isThisWeek]);
+  },[wk,authUser?.id]);
 
   useEffect(()=>{load();},[load]);
 
@@ -900,8 +900,8 @@ function HomeView({today,authUser,users,zones,nav,isOnline}){
       <button onClick={()=>nav("inspect")} style={C.btn("pri",{padding:"11px 22px",fontSize:15,display:"flex",alignItems:"center",gap:8})}>▶ Start Inspection</button>
     </div>
 
-    {/* Open Issues — only show for current week */}
-    {isThisWeek&&<div style={{...C.card({marginBottom:14,padding:"14px 18px"}),display:"flex",alignItems:"center",gap:16,cursor:"pointer"}} onClick={()=>nav("tracker")}>
+    {/* Open Issues — always visible */}
+    <div style={{...C.card({marginBottom:14,padding:"14px 18px"}),display:"flex",alignItems:"center",gap:16,cursor:"pointer"}} onClick={()=>nav("tracker")}>
       <div style={{flex:1}}>
         <Mono size={11} color="var(--t3)" style={{textTransform:"uppercase",letterSpacing:".06em",display:"block",marginBottom:4}}>Open Issues</Mono>
         <div style={{display:"flex",alignItems:"baseline",gap:10}}>
@@ -911,7 +911,7 @@ function HomeView({today,authUser,users,zones,nav,isOnline}){
         </div>
       </div>
       <Mono size={13} color="var(--t3)">→ Tracker</Mono>
-    </div>}
+    </div>
 
     {/* Week navigator */}
     <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10,background:"var(--surf)",borderRadius:9,border:"1px solid var(--bd)",padding:"8px 12px"}}>
@@ -2121,7 +2121,7 @@ function AdminPanel({authUser,users,setUsers,zones,setZones,onClose,ejConfig,set
     </div>
     <div style={{display:"flex",gap:5,marginBottom:18,flexWrap:"wrap"}}>
       <button onClick={()=>setTab("pin")} style={C.btn(tab==="pin"?"pri":"ghost",{padding:"7px 12px",fontSize:13})}>🔑 PIN</button>
-      <button onClick={()=>setTab("profile")} style={C.btn(tab==="profile"?"pri":"ghost",{padding:"7px 12px",fontSize:13})}>👤 My Profile</button>
+      {authUser.role!=="inspector"&&<button onClick={()=>setTab("profile")} style={C.btn(tab==="profile"?"pri":"ghost",{padding:"7px 12px",fontSize:13})}>👤 My Profile</button>}
       {isAdmin&&<>
         <button onClick={()=>setTab("team")} style={C.btn(tab==="team"?"pri":"ghost",{padding:"7px 12px",fontSize:13})}>👥 Team</button>
         <button onClick={()=>setTab("zones")} style={C.btn(tab==="zones"?"pri":"ghost",{padding:"7px 12px",fontSize:13})}>🧭 Zones</button>
