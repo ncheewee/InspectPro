@@ -78,7 +78,7 @@ const {useState,useEffect,useRef,useCallback,useReducer} = React;
 // e.g. "https://inspectpro-api.railway.app"
 const API_BASE = window.INSPECTPRO_API || "https://inspectpro-api.onrender.com";
 
-const VERSION = "v5.3.4";
+const VERSION = "v5.3.5";
 const DAYS = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
 const isAdminRole = role => role === "admin";
 const isManagerRole = role => role === "manager" || role === "admin";
@@ -1445,6 +1445,8 @@ function TrackerItem({item,expanded,onToggle,onUpdateStatus,onNotePosted,authUse
   const [notes,setNotes]=useState(null);
   const [loadingNotes,setLoadingNotes]=useState(false);
   const [lightbox,setLightbox]=useState(null);
+  const [localMedia,setLocalMedia]=useState(null); // null = use item.media; set after upload
+  const [mediaUploading,setMediaUploading]=useState(false);
 
   useEffect(()=>{
     if(expanded&&notes===null){
@@ -1463,7 +1465,27 @@ function TrackerItem({item,expanded,onToggle,onUpdateStatus,onNotePosted,authUse
     }catch(e){showToast("Could not post note: "+e.message,"err");}
   };
 
-  const media=item.media||[];
+  const handleMediaUpload=async e=>{
+    const f=e.target.files?.[0];if(!f)return;
+    e.target.value="";
+    if(!item.inspection_item_id){showToast("Cannot attach media to this issue","err");return;}
+    const isVid=/^video\//.test(f.type);
+    setMediaUploading(true);
+    try{
+      const ik=await uploadToImageKit(f,isVid?"inspectpro/videos":"inspectpro/photos");
+      const saved=await api.post("/api/media",{
+        inspectionItemId:item.inspection_item_id,
+        type:isVid?"video":"photo",
+        imagekitFileId:ik.fileId,url:ik.url,
+        thumbnailUrl:ik.thumbnailUrl,size:ik.size,name:ik.name,
+      });
+      setLocalMedia(p=>[...(p??item.media??[]),saved]);
+      showToast("Media attached","ok");
+    }catch(err){showToast("Upload failed: "+err.message,"err");}
+    setMediaUploading(false);
+  };
+
+  const media=localMedia??item.media??[];
   const openLightbox=(items,idx=0)=>setLightbox({items,idx});
 
   return <div style={{background:"var(--card)",border:`1px solid ${expanded?"var(--bd2)":"var(--bd)"}`,borderRadius:10,overflow:"hidden"}}>
@@ -1499,9 +1521,17 @@ function TrackerItem({item,expanded,onToggle,onUpdateStatus,onNotePosted,authUse
           })}
         </div>
       </div>}
-      <div style={{display:"flex",gap:7,alignItems:"center",marginBottom:12,flexWrap:"wrap"}}>
+      <div style={{display:"flex",gap:7,alignItems:"center",marginBottom:8,flexWrap:"wrap"}}>
         <Mono size={11} color="var(--t3)" style={{textTransform:"uppercase"}}>Status:</Mono>
         {["open","in-progress","closed"].map(s=><button key={s} onClick={()=>onUpdateStatus(item.id,s)} style={{...C.btn(s==="closed"?"ok":s==="in-progress"?"sec":"dng",{padding:"5px 12px",fontSize:13}),opacity:item.status===s?1:.45,fontWeight:item.status===s?600:500}}>{s}</button>)}
+      </div>
+      <div style={{marginBottom:12}}>
+        <label style={{display:"inline-flex",alignItems:"center",gap:7,cursor:"pointer"}}>
+          <span style={C.btn("ghost",{padding:"5px 11px",fontSize:12,border:"1px dashed var(--bd)",borderRadius:7})}>
+            {mediaUploading?<Spinner size={12}/>:"📎 Attach photo/video"}
+          </span>
+          <input type="file" accept="image/*,video/*" onChange={handleMediaUpload} style={{display:"none"}} disabled={mediaUploading}/>
+        </label>
       </div>
       {loadingNotes?<div style={{padding:"8px"}}><Spinner/></div>:<>
         {notes&&notes.length>0&&<div style={{marginBottom:11}}>
@@ -1981,6 +2011,58 @@ function ReportsView({users,zones,authUser}){
 
 // ── ADMIN PANEL ───────────────────────────────────────────────────────────────
 const USER_COLORS=["#3b82f6","#8b5cf6","#06b6d4","#10b981","#f59e0b","#ec4899","#ef4444","#f97316","#84cc16","#14b8a6"];
+// ── FEEDBACK MODAL ────────────────────────────────────────────────────────────
+function FeedbackModal({onClose}){
+  const [text,setText]=useState("");
+  const [photo,setPhoto]=useState(null); // {url,thumbnailUrl}
+  const [uploading,setUploading]=useState(false);
+  const [submitting,setSubmitting]=useState(false);
+  const [msg,setMsg]=useState("");
+
+  const handleFile=async e=>{
+    const f=e.target.files?.[0];if(!f)return;
+    e.target.value="";
+    setUploading(true);setMsg("");
+    try{
+      const ik=await uploadToImageKit(f,"inspectpro/feedback");
+      setPhoto({url:ik.url,thumbnailUrl:ik.thumbnailUrl||ik.url});
+    }catch(err){setMsg("Upload failed: "+err.message);}
+    setUploading(false);
+  };
+
+  const submit=async()=>{
+    if(!text.trim()){setMsg("Please enter a comment.");return;}
+    setSubmitting(true);setMsg("");
+    try{
+      await api.post("/api/feedback",{text:text.trim(),photo_url:photo?.url||null,thumbnail_url:photo?.thumbnailUrl||null});
+      showToast("Feedback submitted — thank you!","ok");
+      onClose();
+    }catch(err){setMsg("Submit failed: "+err.message);}
+    setSubmitting(false);
+  };
+
+  return <Modal onClose={onClose} title="💬 Pilot Feedback" maxW={440}>
+    <p style={{fontSize:13,color:"var(--t3)",marginBottom:14,lineHeight:1.5}}>Help us improve InspectPro. All feedback goes directly to the admin team.</p>
+    <Lbl>Your comment</Lbl>
+    <textarea value={text} onChange={e=>setText(e.target.value)} rows={4} placeholder="What's working well? What needs improvement?" style={{...C.inp({marginBottom:12}),resize:"vertical",lineHeight:1.6}}/>
+    <Lbl>Attach a photo or video (optional)</Lbl>
+    {photo
+      ?<div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
+          <img src={photo.thumbnailUrl} style={{width:64,height:64,objectFit:"cover",borderRadius:8,border:"1px solid var(--bd)"}}/>
+          <button onClick={()=>setPhoto(null)} style={C.btn("dng",{padding:"5px 10px",fontSize:12})}>✕ Remove</button>
+        </div>
+      :<label style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer",marginBottom:12}}>
+          <span style={C.btn("ghost",{padding:"7px 13px",fontSize:13,border:"1px dashed var(--bd)",borderRadius:8})}>{uploading?<Spinner size={14}/>:"📎 Choose file"}</span>
+          <input type="file" accept="image/*,video/*" onChange={handleFile} style={{display:"none"}} disabled={uploading}/>
+        </label>
+    }
+    {msg&&<div style={{padding:"8px 12px",borderRadius:7,fontSize:13,marginBottom:10,background:"var(--op-bg)",color:"var(--op-fg)"}}>{msg}</div>}
+    <button onClick={submit} disabled={submitting||uploading} style={{...C.btn("pri",{width:"100%",padding:"11px"}),opacity:submitting||uploading?.5:1}}>
+      {submitting?<Spinner size={14}/>:"Send Feedback"}
+    </button>
+  </Modal>;
+}
+
 function AdminPanel({authUser,users,setUsers,zones,setZones,onClose,ejConfig,setEjConfig,tgConfig,setTgConfig}){
   const isAdmin=canManageConfig(authUser);
   const isMgr=isManagerRole(authUser?.role);
@@ -2045,6 +2127,7 @@ function AdminPanel({authUser,users,setUsers,zones,setZones,onClose,ejConfig,set
   // Zones + checklist
   const [zoneDraft,setZoneDraft]=useState(()=>zones.map((z,i)=>({...z,displayOrder:z.displayOrder??i+1,items:[...(z.items||[])]})));
   const [zoneMsg,setZoneMsg]=useState("");
+  const zoneListRef=useRef(null);
   const updateZone=(idx,fields)=>setZoneDraft(p=>p.map((z,i)=>i===idx?{...z,...fields}:z));
   const updateCheck=(zIdx,itemIdx,value)=>setZoneDraft(p=>p.map((z,i)=>i===zIdx?{...z,items:z.items.map((it,j)=>j===itemIdx?value:it)}:z));
   const moveCheck=(zIdx,itemIdx,dir)=>setZoneDraft(p=>p.map((z,i)=>{
@@ -2054,7 +2137,15 @@ function AdminPanel({authUser,users,setUsers,zones,setZones,onClose,ejConfig,set
     [items[itemIdx],items[next]]=[items[next],items[itemIdx]];
     return {...z,items};
   }));
-  const addZone=()=>setZoneDraft(p=>[...p,{id:`Z${String(p.length+1).padStart(2,"0")}`,name:"New Zone",items:["General condition OK"],displayOrder:p.length+1}]);
+  const addZone=()=>{
+    setZoneDraft(p=>[...p,{id:`Z${String(p.length+1).padStart(2,"0")}`,name:"New Zone",items:["General condition OK"],displayOrder:p.length+1}]);
+    setTimeout(()=>{
+      if(zoneListRef.current){
+        const last=zoneListRef.current.lastElementChild;
+        if(last)last.scrollIntoView({behavior:"smooth",block:"nearest"});
+      }
+    },60);
+  };
   const removeZone=async(zIdx)=>{
     const z=zoneDraft[zIdx];
     if(!await showConfirm("Remove "+z.id+" · "+z.name+" from active zones? Historical reports will remain available."))return;
@@ -2094,23 +2185,19 @@ function AdminPanel({authUser,users,setUsers,zones,setZones,onClose,ejConfig,set
     setTgMsg(res.ok?"✅ Test Telegram sent.":`❌ Test Telegram failed: ${res.err||"check config"}`);
   };
 
-  // Pilot reset
-  const [resetOpts,setResetOpts]=useState({inspections:true,issues:true,roster:true,zones:false});
-  const [resetText,setResetText]=useState("");
-  const [resetMsg,setResetMsg]=useState("");
-  const [resetBusy,setResetBusy]=useState(false);
-  const runPilotReset=async()=>{
-    if(resetText!=="WIPE"){setResetMsg("Type WIPE to confirm.");return;}
-    if(!await showConfirm("Clear selected pilot data now? Team members and notification settings will remain."))return;
-    setResetBusy(true);setResetMsg("Clearing selected data…");
-    try{
-      const res=await api.post("/api/config/pilot-reset",{confirm:resetText,...resetOpts});
-      if(resetOpts.zones){setZones([]);setZoneDraft([]);}
-      const parts=Object.entries(res.counts||{}).map(([k,v])=>`${k}: ${v}`);
-      setResetMsg(`✅ Pilot data cleared${parts.length?` (${parts.join(", ")})`:"."}`);
-      setResetText("");
-    }catch(e){setResetMsg("❌ "+e.message);}
-    setResetBusy(false);
+  // Feedback viewer (admin)
+  const [fbList,setFbList]=useState(null);
+  const [fbLoading,setFbLoading]=useState(false);
+  const loadFeedback=async()=>{
+    setFbLoading(true);
+    try{const d=await api.get("/api/feedback");setFbList(d);}
+    catch(e){showToast("Could not load feedback: "+e.message,"err");}
+    setFbLoading(false);
+  };
+  const deleteFb=async id=>{
+    if(!await showConfirm("Delete this feedback entry?"))return;
+    try{await api.delete(`/api/feedback/${id}`);setFbList(p=>p.filter(f=>f.id!==id));}
+    catch(e){showToast("Delete failed: "+e.message,"err");}
   };
 
   return <Modal onClose={onClose} title="Menu" maxW={540}>
@@ -2127,7 +2214,7 @@ function AdminPanel({authUser,users,setUsers,zones,setZones,onClose,ejConfig,set
         <button onClick={()=>setTab("zones")} style={C.btn(tab==="zones"?"pri":"ghost",{padding:"7px 12px",fontSize:13})}>🧭 Zones</button>
         <button onClick={()=>setTab("email")} style={C.btn(tab==="email"?"pri":"ghost",{padding:"7px 12px",fontSize:13})}>📧 Email</button>
         <button onClick={()=>setTab("telegram")} style={C.btn(tab==="telegram"?"pri":"ghost",{padding:"7px 12px",fontSize:13})}>✈️ Telegram</button>
-        <button onClick={()=>setTab("pilot")} style={C.btn(tab==="pilot"?"pri":"ghost",{padding:"7px 12px",fontSize:13})}>Pilot Reset</button>
+        <button onClick={()=>{setTab("feedback");if(!fbList)loadFeedback();}} style={C.btn(tab==="feedback"?"pri":"ghost",{padding:"7px 12px",fontSize:13})}>💬 Feedback</button>
       </>}
     </div>
 
@@ -2208,7 +2295,7 @@ function AdminPanel({authUser,users,setUsers,zones,setZones,onClose,ejConfig,set
         <span style={{fontWeight:700,color:"var(--t1)"}}>Zones and check sequence</span>
         <button onClick={addZone} style={C.btn("sec",{padding:"7px 12px",fontSize:13})}>+ Zone</button>
       </div>
-      <div style={{display:"flex",flexDirection:"column",gap:10,maxHeight:430,overflowY:"auto",paddingRight:4}}>
+      <div ref={zoneListRef} style={{display:"flex",flexDirection:"column",gap:10,maxHeight:430,overflowY:"auto",paddingRight:4}}>
         {zoneDraft.map((z,zIdx)=><div key={zIdx} style={{background:"var(--surf)",border:"1px solid var(--bd)",borderRadius:10,padding:"12px"}}>
           <div style={{display:"grid",gridTemplateColumns:"82px 1fr auto",gap:8,marginBottom:10,alignItems:"center"}}>
             <input value={z.id} onChange={e=>updateZone(zIdx,{id:e.target.value})} style={C.inp({fontFamily:"'DM Mono',monospace",fontWeight:700})}/>
@@ -2261,26 +2348,29 @@ function AdminPanel({authUser,users,setUsers,zones,setZones,onClose,ejConfig,set
       <p style={{fontSize:12,color:"var(--t3)"}}>All inspection completion alerts go to this group. Every manager in the group sees them in real time.</p>
     </div>}
 
-    {tab==="pilot"&&<div style={{display:"flex",flexDirection:"column",gap:12}}>
-      <div style={{background:"var(--fl-bg)",border:"1px solid var(--fl-bd)",borderRadius:8,padding:"11px 13px",fontSize:13,color:"var(--t2)",lineHeight:1.5}}>
-        Clears operational pilot data while keeping team accounts, PINs, and notification settings. Image files already stored on ImageKit are not deleted from ImageKit.
+    {tab==="feedback"&&<div>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
+        <span style={{fontWeight:700,fontSize:15,color:"var(--t1)"}}>Pilot Feedback</span>
+        <button onClick={loadFeedback} style={C.btn("ghost",{padding:"6px 12px",fontSize:12})}>↻ Refresh</button>
       </div>
-      {[
-        {id:"inspections",label:"Inspection reports and uploaded media records"},
-        {id:"issues",label:"Tracker items and notes"},
-        {id:"roster",label:"Weekly roster assignments"},
-        {id:"zones",label:"Archive all active zones and checks"},
-      ].map(o=><label key={o.id} style={{display:"flex",alignItems:"center",gap:9,background:"var(--surf)",border:"1px solid var(--bd)",borderRadius:8,padding:"9px 11px",cursor:"pointer"}}>
-        <input type="checkbox" checked={!!resetOpts[o.id]} onChange={e=>setResetOpts(p=>({...p,[o.id]:e.target.checked}))} style={{accentColor:"var(--red)",width:18,height:18}}/>
-        <span style={{fontSize:14,fontWeight:600,color:"var(--t1)"}}>{o.label}</span>
-      </label>)}
-      <div>
-        <Lbl>Confirmation</Lbl>
-        <input value={resetText} onChange={e=>setResetText(e.target.value)} placeholder="Type WIPE" style={C.inp({fontFamily:"'DM Mono',monospace",fontWeight:700})}/>
-      </div>
-      {resetMsg&&<div style={{padding:"8px 12px",borderRadius:7,fontSize:13,background:resetMsg.startsWith("✅")?"var(--cl-bg)":resetMsg.startsWith("❌")?"var(--op-bg)":"var(--ip-bg)",color:resetMsg.startsWith("✅")?"var(--cl-fg)":resetMsg.startsWith("❌")?"var(--op-fg)":"var(--ip-fg)"}}>{resetMsg}</div>}
-      <button onClick={runPilotReset} disabled={resetBusy||resetText!=="WIPE"} style={{...C.btn("dng",{width:"100%",padding:"11px"}),opacity:(resetBusy||resetText!=="WIPE")?0.35:1}}>Clear Selected Data</button>
-      <p style={{fontSize:12,color:"var(--t3)",lineHeight:1.5}}>After clearing, use Team and Zones to set up the actual pilot roster, zones, and checklist sequence.</p>
+      {fbLoading?<div style={{textAlign:"center",padding:24}}><Spinner size={20}/></div>
+        :!fbList||fbList.length===0
+          ?<div style={{textAlign:"center",padding:"32px",color:"var(--t3)",fontSize:14,background:"var(--surf)",borderRadius:9,border:"1px solid var(--bd)"}}>No feedback submitted yet.</div>
+          :<div style={{display:"flex",flexDirection:"column",gap:8,maxHeight:400,overflowY:"auto"}}>
+            {fbList.map(f=><div key={f.id} style={{background:"var(--surf)",border:"1px solid var(--bd)",borderRadius:10,padding:"12px 14px"}}>
+              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:7,flexWrap:"wrap"}}>
+                <span style={{...roleChipStyle(f.user_role),borderRadius:5,padding:"1px 7px",fontSize:11,fontWeight:700,fontFamily:"'DM Mono',monospace"}}>{f.user_role.toUpperCase()}</span>
+                <span style={{fontWeight:600,fontSize:13,color:"var(--t1)"}}>{f.user_name}</span>
+                <Mono size={11} style={{marginLeft:"auto"}}>{fD(f.created_at)} {fT(f.created_at)}</Mono>
+              </div>
+              <div style={{fontSize:14,color:"var(--t2)",lineHeight:1.6,marginBottom:f.photo_url?10:0}}>{f.text}</div>
+              {f.photo_url&&<img src={f.thumbnail_url||f.photo_url} style={{width:80,height:80,objectFit:"cover",borderRadius:7,border:"1px solid var(--bd)",cursor:"zoom-in"}} onClick={()=>window.open(f.photo_url,"_blank")}/>}
+              <div style={{marginTop:9,display:"flex",justifyContent:"flex-end"}}>
+                <button onClick={()=>deleteFb(f.id)} style={C.btn("dng",{padding:"4px 9px",fontSize:12})}>✕ Delete</button>
+              </div>
+            </div>)}
+          </div>
+      }
     </div>}
   </Modal>;
 }
@@ -2295,6 +2385,7 @@ function App(){
   const [view,setView]=useState("home");
   const [showLogin,setShowLogin]=useState(()=>!LS.load("ip_v4_user"));
   const [showAdmin,setShowAdmin]=useState(false);
+  const [showFeedback,setShowFeedback]=useState(false);
   const [isOnline,setIsOnline]=useState(navigator.onLine);
   const [serverWaking,setServerWaking]=useState(false);
   const [ejConfig,setEjConfig]=useState({});
@@ -2398,6 +2489,9 @@ function App(){
       </div>
     </div>
     {showAdmin&&<AdminPanel authUser={authUser} users={users} setUsers={setUsers} zones={zones} setZones={setZones} ejConfig={ejConfig} setEjConfig={setEjConfig} tgConfig={tgConfig} setTgConfig={setTgConfig} onClose={()=>setShowAdmin(false)}/>}
+    {showFeedback&&<FeedbackModal onClose={()=>setShowFeedback(false)}/>}
+    {/* Floating feedback button */}
+    <button onClick={()=>setShowFeedback(true)} title="Share feedback" style={{position:"fixed",bottom:20,right:20,zIndex:500,width:48,height:48,borderRadius:"50%",background:"var(--blue)",color:"#fff",border:"none",fontSize:20,cursor:"pointer",boxShadow:"0 3px 12px rgba(0,0,0,.25)",display:"flex",alignItems:"center",justifyContent:"center",transition:"transform .15s"}}>💬</button>
     <ToastHost/>
     <ConfirmHost/>
   </div>;
