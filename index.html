@@ -783,7 +783,7 @@ const TABS=[
   {id:"tracker", l:"Tracker", icon:"◈"},
   {id:"reports", l:"Reports", icon:"📋",opsOnly:true},
 ];
-function NavBar({view,nav,authUser,onSignIn,onSignOut,theme,setTheme,onAdmin}){
+function NavBar({view,nav,authUser,onSignIn,onSignOut,theme,setTheme,onAdmin,onFeedback}){
   const visibleTabs=TABS.filter(t=>!t.opsOnly||canManageOps(authUser));
   const navTabs=authUser?[...visibleTabs,{id:"menu",l:"Menu",icon:"≡",menu:true}]:visibleTabs;
   return <>
@@ -803,7 +803,11 @@ function NavBar({view,nav,authUser,onSignIn,onSignOut,theme,setTheme,onAdmin}){
           <button onClick={()=>setTheme(t=>t==="dark"?"light":"dark")} style={{background:"none",border:"none",cursor:"pointer",fontSize:16,padding:"5px",lineHeight:1}}>{theme==="dark"?"☀️":"🌙"}</button>
           {authUser
             ?<>
-              <Avatar user={authUser} size={24}/>
+              <span style={{display:"flex",alignItems:"center",gap:5,background:"var(--surf)",border:"1px solid var(--bd)",borderRadius:20,padding:"3px 10px 3px 4px",fontSize:12,fontWeight:600,color:"var(--t1)",whiteSpace:"nowrap"}}>
+                <Avatar user={authUser} size={20}/>
+                {authUser.name.split(" ")[0]}
+              </span>
+              <button onClick={onFeedback} title="Share feedback" style={{background:"none",border:"none",cursor:"pointer",fontSize:16,padding:"4px 5px",lineHeight:1}}>💬</button>
               <button onClick={onSignOut} style={C.btn("ghost",{padding:"5px 10px",fontSize:12})}>Log Out</button>
             </>
             :<button onClick={onSignIn} style={C.btn("pri",{padding:"6px 12px",fontSize:13})}>Log In</button>
@@ -2476,7 +2480,7 @@ function App(){
     {!isOnline&&<div className="offline-bar">⚠ No internet connection — app requires a live connection</div>}
     {serverWaking&&<div className="waking-bar" style={{top:!isOnline?32:0}}><span className="waking-spinner"/><span>Server is waking up — this takes about 30 seconds on first load. Hang tight!</span></div>}
     <div style={{marginTop:(!isOnline&&serverWaking)?64:(!isOnline||serverWaking)?32:0}}>
-      <NavBar view={view} nav={nav} authUser={authUser} onSignIn={()=>setShowLogin(true)} onSignOut={handleLogout} theme={theme} setTheme={setTheme} onAdmin={()=>setShowAdmin(true)}/>
+      <NavBar view={view} nav={nav} authUser={authUser} onSignIn={()=>setShowLogin(true)} onSignOut={handleLogout} theme={theme} setTheme={setTheme} onAdmin={()=>setShowAdmin(true)} onFeedback={()=>setShowFeedback(true)}/>
       <div className="main-pad" style={{maxWidth:1140,margin:"0 auto"}}>
         {bootstrapErr&&<div style={{padding:"20px",background:"var(--op-bg)",borderRadius:12,color:"var(--op-fg)",marginBottom:16,fontSize:14}}>
           ⚠ {bootstrapErr}<br/><span style={{fontSize:12,opacity:.8}}>API: {API_BASE}</span>
@@ -2490,8 +2494,6 @@ function App(){
     </div>
     {showAdmin&&<AdminPanel authUser={authUser} users={users} setUsers={setUsers} zones={zones} setZones={setZones} ejConfig={ejConfig} setEjConfig={setEjConfig} tgConfig={tgConfig} setTgConfig={setTgConfig} onClose={()=>setShowAdmin(false)}/>}
     {showFeedback&&<FeedbackModal onClose={()=>setShowFeedback(false)}/>}
-    {/* Floating feedback button */}
-    <button onClick={()=>setShowFeedback(true)} title="Share feedback" style={{position:"fixed",bottom:20,right:20,zIndex:500,width:48,height:48,borderRadius:"50%",background:"var(--blue)",color:"#fff",border:"none",fontSize:20,cursor:"pointer",boxShadow:"0 3px 12px rgba(0,0,0,.25)",display:"flex",alignItems:"center",justifyContent:"center",transition:"transform .15s"}}>💬</button>
     <ToastHost/>
     <ConfirmHost/>
   </div>;
