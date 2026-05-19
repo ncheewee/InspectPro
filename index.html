@@ -58,6 +58,8 @@ textarea{resize:vertical;}img{display:block;}
 .offline-bar{position:fixed;top:0;left:0;right:0;z-index:999;background:#92400e;color:#fde68a;font-size:13px;font-weight:600;text-align:center;padding:6px;display:flex;align-items:center;justify-content:center;gap:8px;}
 .waking-bar{position:fixed;top:0;left:0;right:0;z-index:998;background:#0d2461;color:#93c5fd;font-size:13px;font-weight:500;text-align:center;padding:7px 12px;display:flex;align-items:center;justify-content:center;gap:10px;border-bottom:1px solid #1e3a8a;}
 .waking-bar .waking-spinner{width:14px;height:14px;border:2px solid rgba(147,197,253,.3);border-top-color:#93c5fd;border-radius:50%;animation:spin .7s linear infinite;flex-shrink:0;}
+.update-bar{position:fixed;top:0;left:0;right:0;z-index:997;background:#064e3b;color:#6ee7b7;font-size:13px;font-weight:500;text-align:center;padding:7px 12px;display:flex;align-items:center;justify-content:center;gap:10px;border-bottom:1px solid #065f46;}
+.update-bar button{background:#6ee7b7;color:#064e3b;border:none;border-radius:4px;padding:3px 12px;font-size:12px;font-weight:700;cursor:pointer;line-height:1.6;}
 .bottom-nav{display:none;position:fixed;bottom:0;left:0;right:0;z-index:200;background:var(--surf);border-top:1px solid var(--bd);padding:0 0 env(safe-area-inset-bottom,0);box-shadow:0 -4px 20px rgba(0,0,0,.18);}
 .top-tabs{display:flex;}
 .main-pad{padding:16px 14px 80px;max-width:100%;overflow-x:hidden;}
@@ -78,7 +80,7 @@ const {useState,useEffect,useRef,useCallback,useReducer} = React;
 // e.g. "https://inspectpro-api.railway.app"
 const API_BASE = window.INSPECTPRO_API || "https://inspectpro-api.onrender.com";
 
-const VERSION = "v5.3.5";
+const VERSION = "v5.3.6";
 const DAYS = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
 const isAdminRole = role => role === "admin";
 const isManagerRole = role => role === "manager" || role === "admin";
@@ -2394,6 +2396,7 @@ function App(){
   const [showFeedback,setShowFeedback]=useState(false);
   const [isOnline,setIsOnline]=useState(navigator.onLine);
   const [serverWaking,setServerWaking]=useState(false);
+  const [updateReady,setUpdateReady]=useState(false);
   const [ejConfig,setEjConfig]=useState({});
   const [tgConfig,setTgConfig]=useState({});
   const [bootstrapErr,setBootstrapErr]=useState("");
@@ -2422,6 +2425,13 @@ function App(){
     window.addEventListener("ip_server_waking",show);
     window.addEventListener("ip_server_ready",hide);
     return()=>{window.removeEventListener("ip_server_waking",show);window.removeEventListener("ip_server_ready",hide);};
+  },[]);
+
+  // SW update ready
+  useEffect(()=>{
+    const handler=()=>setUpdateReady(true);
+    window.addEventListener("ip_update_ready",handler);
+    return()=>window.removeEventListener("ip_update_ready",handler);
   },[]);
 
   // JWT expired — auto-logout
@@ -2479,9 +2489,10 @@ function App(){
 
   // ── Logged in ────────────────────────────────────────────────────────────────
   return <div style={{fontFamily:"'DM Sans',sans-serif",background:"var(--bg)",minHeight:"100vh",color:"var(--t1)",transition:"background .25s"}}>
-    {!isOnline&&<div className="offline-bar">⚠ No internet connection — app requires a live connection</div>}
-    {serverWaking&&<div className="waking-bar" style={{top:!isOnline?32:0}}><span className="waking-spinner"/><span>Server is waking up — this takes about 30 seconds on first load. Hang tight!</span></div>}
-    <div style={{marginTop:(!isOnline&&serverWaking)?64:(!isOnline||serverWaking)?32:0}}>
+    {updateReady&&<div className="update-bar"><span>🚀 New version available</span><button onClick={()=>window.location.reload()}>Update now</button></div>}
+    {!isOnline&&<div className="offline-bar" style={{top:updateReady?32:0}}>⚠ No internet connection — app requires a live connection</div>}
+    {serverWaking&&<div className="waking-bar" style={{top:(updateReady&&!isOnline)?64:(updateReady||!isOnline)?32:0}}><span className="waking-spinner"/><span>Server is waking up — this takes about 30 seconds on first load. Hang tight!</span></div>}
+    <div style={{marginTop:[updateReady,!isOnline,serverWaking].filter(Boolean).length*32}}>
       <NavBar view={view} nav={nav} authUser={authUser} onSignIn={()=>setShowLogin(true)} onSignOut={handleLogout} theme={theme} setTheme={setTheme} onAdmin={()=>setShowAdmin(true)} onFeedback={()=>setShowFeedback(true)}/>
       <div className="main-pad" style={{maxWidth:1140,margin:"0 auto"}}>
         {bootstrapErr&&<div style={{padding:"20px",background:"var(--op-bg)",borderRadius:12,color:"var(--op-fg)",marginBottom:16,fontSize:14}}>
@@ -2504,7 +2515,22 @@ function App(){
 ReactDOM.createRoot(document.getElementById("root")).render(React.createElement(App));
 </script>
 <script>
-if('serviceWorker'in navigator){window.addEventListener('load',()=>{navigator.serviceWorker.register('sw.js').then(r=>console.log('[SW] registered:',r.scope)).catch(e=>console.warn('[SW] failed:',e));});}
+if('serviceWorker'in navigator){
+  window.addEventListener('load',()=>{
+    // Flag whether a SW is already controlling this page (i.e. this is an update, not first install)
+    const wasControlled=!!navigator.serviceWorker.controller;
+    // Listen for the SW_ACTIVATED broadcast — only treat it as an update if we had a prior SW
+    navigator.serviceWorker.addEventListener('message',e=>{
+      if(e.data&&e.data.type==='SW_ACTIVATED'&&wasControlled){
+        console.log('[SW] new version activated — notifying app');
+        window.dispatchEvent(new Event('ip_update_ready'));
+      }
+    });
+    navigator.serviceWorker.register('sw.js')
+      .then(r=>console.log('[SW] registered:',r.scope))
+      .catch(e=>console.warn('[SW] failed:',e));
+  });
+}
 </script>
 </body>
 </html>

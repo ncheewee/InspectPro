@@ -1,8 +1,8 @@
-// InspectPro Service Worker — v1
+// InspectPro Service Worker — v2
 // Minimal SW for PWA installability (no offline caching needed;
 // app requires live API on Render + Supabase).
 
-const CACHE_NAME = 'inspectpro-shell-v1';
+const CACHE_NAME = 'inspectpro-shell-v2';
 
 self.addEventListener('install', event => {
   // Activate immediately without waiting for old SW to be released
@@ -10,8 +10,14 @@ self.addEventListener('install', event => {
 });
 
 self.addEventListener('activate', event => {
-  // Claim all clients so the SW is active straight away
-  event.waitUntil(clients.claim());
+  // Claim all clients, then notify them a new SW has taken over
+  event.waitUntil(
+    clients.claim().then(() =>
+      clients.matchAll({ type: 'window' }).then(all =>
+        all.forEach(c => c.postMessage({ type: 'SW_ACTIVATED' }))
+      )
+    )
+  );
 });
 
 // Passthrough fetch — no caching strategy.
