@@ -80,7 +80,7 @@ const {useState,useEffect,useRef,useCallback,useReducer} = React;
 // e.g. "https://inspectpro-api.railway.app"
 const API_BASE = window.INSPECTPRO_API || "https://inspectpro-api.onrender.com";
 
-const VERSION = "v5.3.7";
+const VERSION = "v5.3.8";
 const DAYS = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
 const isAdminRole = role => role === "admin";
 const isManagerRole = role => role === "manager" || role === "admin";
@@ -317,7 +317,7 @@ async function buildEmailContent(rec, users, zones) {
 <table width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,.08);">
   <tr><td style="background:#0d1b2e;padding:20px 24px;">
     <table width="100%" cellpadding="0" cellspacing="0"><tr>
-      <td><span style="font-size:20px;font-weight:700;color:#fff;">Inspect<span style="color:#f59e0b;">Pro</span> <span style="font-size:12px;color:#8ea0b8;">v4</span></span></td>
+      <td><span style="font-size:20px;font-weight:700;color:#fff;">Inspect<span style="color:#f59e0b;">Pro</span> <span style="font-size:12px;color:#8ea0b8;">${VERSION}</span></span></td>
       <td align="right"><span style="font-size:12px;color:#8ea0b8;">Inspection Report</span></td>
     </tr></table>
   </td></tr>
@@ -1051,9 +1051,9 @@ function InspectView({authUser,zones,users,today,ejConfig,tgConfig}){
     setSending(true);setErr("");
     try{
       const endTime=new Date().toISOString();
-      const completed=await api.put(`/api/inspections/${activeInsp.id}/complete`,{endTime});
-      // Send notifications in background — don't block the UI
-      const detail=completed||activeInsp;
+      await api.put(`/api/inspections/${activeInsp.id}/complete`,{endTime});
+      // Send notifications in background — use activeInsp (has user_id, start_time, items)
+      const detail={...activeInsp, end_time: endTime};
       (async()=>{
         try{
           const cfg=await api.get("/api/config");
