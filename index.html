@@ -80,7 +80,7 @@ const {useState,useEffect,useRef,useCallback,useReducer} = React;
 // e.g. "https://inspectpro-api.railway.app"
 const API_BASE = window.INSPECTPRO_API || "https://inspectpro-api.onrender.com";
 
-const VERSION = "v5.4.0";
+const VERSION = "v5.4.1";
 const DAYS = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
 const isAdminRole = role => role === "admin";
 const isManagerRole = role => role === "manager" || role === "admin";
@@ -1349,9 +1349,13 @@ function PhotoMarkupModal({file, onSave, onCancel}){
     const url=URL.createObjectURL(file);
     img.onload=()=>{
       const canvas=canvasRef.current;if(!canvas)return;
-      canvas.width=img.naturalWidth;canvas.height=img.naturalHeight;
+      // Scale down to max 1400px on longest side — keeps canvas on-screen and undo snapshots lean
+      const MAX=1400;
+      const scale=Math.min(1,MAX/Math.max(img.naturalWidth,img.naturalHeight));
+      canvas.width=Math.round(img.naturalWidth*scale);
+      canvas.height=Math.round(img.naturalHeight*scale);
       const ctx=canvas.getContext('2d');
-      ctx.drawImage(img,0,0);
+      ctx.drawImage(img,0,0,canvas.width,canvas.height);
       setHistory([ctx.getImageData(0,0,canvas.width,canvas.height)]);
       URL.revokeObjectURL(url);
     };
@@ -1413,7 +1417,7 @@ function PhotoMarkupModal({file, onSave, onCancel}){
     <div style={{padding:"10px 12px",display:"flex",alignItems:"center",gap:8,background:"#111",flexShrink:0,flexWrap:"wrap"}}>
       <button onClick={onCancel} style={{background:"none",border:"1px solid #444",color:"#ccc",borderRadius:7,padding:"6px 12px",fontSize:13,cursor:"pointer"}}>✕ Cancel</button>
       <div style={{flex:1,display:"flex",alignItems:"center",gap:8,justifyContent:"center",flexWrap:"wrap"}}>
-        {COLORS.map(c=><button key={c} onClick={()=>setColor(c)} style={{width:24,height:24,minWidth:24,borderRadius:"50%",background:c,border:color===c?"3px solid #fff":"2px solid rgba(255,255,255,.25)",cursor:"pointer",flexShrink:0,padding:0,boxSizing:"border-box"}}/>)}
+        {COLORS.map(c=><button key={c} onClick={()=>setColor(c)} style={{width:24,height:24,minWidth:24,minHeight:24,borderRadius:"50%",background:c,border:color===c?"3px solid #fff":"2px solid rgba(255,255,255,.25)",cursor:"pointer",flexShrink:0,padding:0,boxSizing:"border-box",alignSelf:"center",WebkitAppearance:"none",appearance:"none",lineHeight:0}}/>)}
         <select value={brushSize} onChange={e=>setBrushSize(+e.target.value)} style={{background:"#222",color:"#fff",border:"1px solid #444",borderRadius:6,padding:"4px 7px",fontSize:12}}>
           <option value={6}>Normal</option>
           <option value={14}>Bold</option>
@@ -1422,9 +1426,9 @@ function PhotoMarkupModal({file, onSave, onCancel}){
       </div>
       <button onClick={handleSave} style={{background:"#f59e0b",border:"none",color:"#000",borderRadius:7,padding:"6px 16px",fontSize:13,fontWeight:700,cursor:"pointer"}}>Save ✓</button>
     </div>
-    <div style={{flex:1,overflow:"auto",display:"flex",alignItems:"center",justifyContent:"center",padding:8}}>
+    <div style={{flex:1,minHeight:0,overflow:"auto",display:"flex",alignItems:"center",justifyContent:"center",padding:8}}>
       <canvas ref={canvasRef}
-        style={{maxWidth:"100%",maxHeight:"100%",touchAction:"none",cursor:"crosshair",borderRadius:4,display:"block"}}
+        style={{maxWidth:"100%",maxHeight:"100%",objectFit:"contain",touchAction:"none",cursor:"crosshair",borderRadius:4,display:"block"}}
         onMouseDown={startDraw} onMouseMove={draw} onMouseUp={endDraw} onMouseLeave={endDraw}
         onTouchStart={startDraw} onTouchMove={draw} onTouchEnd={endDraw}
       />
