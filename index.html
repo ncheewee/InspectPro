@@ -80,7 +80,7 @@ const {useState,useEffect,useRef,useCallback,useReducer} = React;
 // e.g. "https://inspectpro-api.railway.app"
 const API_BASE = window.INSPECTPRO_API || "https://inspectpro-api.onrender.com";
 
-const VERSION = "v5.3.8";
+const VERSION = "v5.3.9";
 const DAYS = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
 const isAdminRole = role => role === "admin";
 const isManagerRole = role => role === "manager" || role === "admin";
@@ -1168,6 +1168,7 @@ function ZoneStep({inspection,updateItem,addMedia,removeMedia,onFinish,onCancel,
   const obsTimers=useRef({});
   const [lightbox,setLightbox]=useState(null);
   const [expandedOk,setExpandedOk]=useState(new Set());
+  const [markupTarget,setMarkupTarget]=useState(null); // {itemId, file}
   const toggleExpand=id=>setExpandedOk(s=>{const n=new Set(s);n.has(id)?n.delete(id):n.add(id);return n;});
   const openLightbox=(items,idx=0)=>setLightbox({items,idx});
   const handleObsChange=(itemId,value)=>{
@@ -1181,8 +1182,15 @@ function ZoneStep({inspection,updateItem,addMedia,removeMedia,onFinish,onCancel,
   const handlePhoto=async(itemId,e)=>{
     const f=e.target.files?.[0];if(!f)return;
     e.target.value="";
+    // Show markup modal before uploading
+    setMarkupTarget({itemId,file:f});
+  };
+
+  const handleMarkupSave=async(annotatedFile)=>{
+    const{itemId}=markupTarget;
+    setMarkupTarget(null);
     try{
-      const ik=await uploadToImageKit(f,"inspectpro/photos");
+      const ik=await uploadToImageKit(annotatedFile,"inspectpro/photos");
       const saved=await api.post("/api/media",{
         inspectionItemId:itemId,type:"photo",
         imagekitFileId:ik.fileId,url:ik.url,
@@ -1286,6 +1294,7 @@ function ZoneStep({inspection,updateItem,addMedia,removeMedia,onFinish,onCancel,
       </button>
     </div>
     {lightbox&&<Lightbox items={lightbox.items} startIdx={lightbox.idx} onClose={()=>setLightbox(null)}/>}
+    {markupTarget&&<PhotoMarkupModal file={markupTarget.file} onSave={handleMarkupSave} onCancel={()=>setMarkupTarget(null)}/>}
   </div>;
 }
 
@@ -1323,6 +1332,108 @@ function SummaryStep({inspection,users,zones,onSubmit,sending}){
       {sending?<><Spinner/>Submitting…</>:"📤 Submit Report"}
     </button>
     <p style={{fontSize:13,color:"var(--t3)",textAlign:"center",marginTop:8,lineHeight:1.5}}>Report emails are sent after submission. Flagged observations create Tracker items and trigger Telegram alerts.</p>
+  </div>;
+}
+
+// ── PHOTO MARKUP MODAL ────────────────────────────────────────────────────────
+function PhotoMarkupModal({file, onSave, onCancel}){
+  const canvasRef=useRef(null);
+  const [history,setHistory]=useState([]);
+  const [color,setColor]=useState('#ef4444');
+  const [brushSize,setBrushSize]=useState(4);
+  const isDrawing=useRef(false);
+  const COLORS=['#ef4444','#f97316','#eab308','#22c55e','#3b82f6','#ffffff','#000000'];
+
+  useEffect(()=>{
+    const img=new Image();
+    const url=URL.createObjectURL(file);
+    img.onload=()=>{
+      const canvas=canvasRef.current;if(!canvas)return;
+      canvas.width=img.naturalWidth;canvas.height=img.naturalHeight;
+      const ctx=canvas.getContext('2d');
+      ctx.drawImage(img,0,0);
+      setHistory([ctx.getImageData(0,0,canvas.width,canvas.height)]);
+      URL.revokeObjectURL(url);
+    };
+    img.src=url;
+  },[file]);
+
+  const getPos=e=>{
+    const canvas=canvasRef.current;
+    const rect=canvas.getBoundingClientRect();
+    const sx=canvas.width/rect.width,sy=canvas.height/rect.height;
+    const src=e.touches?e.touches[0]:e;
+    return{x:(src.clientX-rect.left)*sx,y:(src.clientY-rect.top)*sy};
+  };
+
+  const startDraw=e=>{
+    e.preventDefault();
+    isDrawing.current=true;
+    const canvas=canvasRef.current;
+    const ctx=canvas.getContext('2d');
+    const{x,y}=getPos(e);
+    ctx.beginPath();ctx.moveTo(x,y);
+  };
+
+  const draw=e=>{
+    e.preventDefault();
+    if(!isDrawing.current)return;
+    const canvas=canvasRef.current;
+    const ctx=canvas.getContext('2d');
+    const{x,y}=getPos(e);
+    ctx.strokeStyle=color;ctx.lineWidth=brushSize;
+    ctx.lineCap='round';ctx.lineJoin='round';
+    ctx.lineTo(x,y);ctx.stroke();
+  };
+
+  const endDraw=e=>{
+    if(!isDrawing.current)return;
+    isDrawing.current=false;
+    const canvas=canvasRef.current;
+    const ctx=canvas.getContext('2d');
+    const snap=ctx.getImageData(0,0,canvas.width,canvas.height);
+    setHistory(h=>[...h,snap]);
+  };
+
+  const undo=()=>{
+    if(history.length<=1)return;
+    const newH=history.slice(0,-1);
+    setHistory(newH);
+    const canvas=canvasRef.current;
+    canvas.getContext('2d').putImageData(newH[newH.length-1],0,0);
+  };
+
+  const handleSave=()=>{
+    canvasRef.current.toBlob(blob=>{
+      onSave(new File([blob],'annotated.jpg',{type:'image/jpeg'}));
+    },'image/jpeg',0.92);
+  };
+
+  return <div style={{position:"fixed",inset:0,zIndex:3000,background:"rgba(0,0,0,.96)",display:"flex",flexDirection:"column"}}>
+    <div style={{padding:"10px 12px",display:"flex",alignItems:"center",gap:8,background:"#111",flexShrink:0,flexWrap:"wrap"}}>
+      <button onClick={onCancel} style={{background:"none",border:"1px solid #444",color:"#ccc",borderRadius:7,padding:"6px 12px",fontSize:13,cursor:"pointer"}}>✕ Cancel</button>
+      <div style={{flex:1,display:"flex",alignItems:"center",gap:8,justifyContent:"center",flexWrap:"wrap"}}>
+        {COLORS.map(c=><button key={c} onClick={()=>setColor(c)} style={{width:24,height:24,borderRadius:"50%",background:c,border:color===c?"3px solid #fff":"2px solid rgba(255,255,255,.25)",cursor:"pointer",flexShrink:0,padding:0}}/>)}
+        <select value={brushSize} onChange={e=>setBrushSize(+e.target.value)} style={{background:"#222",color:"#fff",border:"1px solid #444",borderRadius:6,padding:"4px 7px",fontSize:12}}>
+          <option value={2}>Thin</option>
+          <option value={4}>Medium</option>
+          <option value={8}>Thick</option>
+          <option value={16}>Bold</option>
+        </select>
+        <button onClick={undo} disabled={history.length<=1} style={{background:"none",border:"1px solid #444",color:history.length<=1?"#555":"#ccc",borderRadius:7,padding:"5px 11px",fontSize:13,cursor:"pointer"}}>↩ Undo</button>
+      </div>
+      <button onClick={handleSave} style={{background:"#f59e0b",border:"none",color:"#000",borderRadius:7,padding:"6px 16px",fontSize:13,fontWeight:700,cursor:"pointer"}}>Save ✓</button>
+    </div>
+    <div style={{flex:1,overflow:"auto",display:"flex",alignItems:"center",justifyContent:"center",padding:8}}>
+      <canvas ref={canvasRef}
+        style={{maxWidth:"100%",maxHeight:"100%",touchAction:"none",cursor:"crosshair",borderRadius:4,display:"block"}}
+        onMouseDown={startDraw} onMouseMove={draw} onMouseUp={endDraw} onMouseLeave={endDraw}
+        onTouchStart={startDraw} onTouchMove={draw} onTouchEnd={endDraw}
+      />
+    </div>
+    <div style={{padding:"8px 14px",background:"#111",textAlign:"center",flexShrink:0}}>
+      <span style={{fontSize:11,color:"#666"}}>Draw to mark up the photo · Pinch to zoom · Save when done</span>
+    </div>
   </div>;
 }
 
@@ -1452,6 +1563,9 @@ function TrackerItem({item,expanded,onToggle,onUpdateStatus,onNotePosted,authUse
   const [lightbox,setLightbox]=useState(null);
   const [localMedia,setLocalMedia]=useState(null); // null = use item.media; set after upload
   const [mediaUploading,setMediaUploading]=useState(false);
+  const [markupFile,setMarkupFile]=useState(null);
+  const trackerPhotoRef=useRef(null);
+  const trackerVideoRef=useRef(null);
 
   useEffect(()=>{
     if(expanded&&notes===null){
@@ -1470,14 +1584,11 @@ function TrackerItem({item,expanded,onToggle,onUpdateStatus,onNotePosted,authUse
     }catch(e){showToast("Could not post note: "+e.message,"err");}
   };
 
-  const handleMediaUpload=async e=>{
-    const f=e.target.files?.[0];if(!f)return;
-    e.target.value="";
+  const uploadMediaFile=async(file,isVid)=>{
     if(!item.inspection_item_id){showToast("Cannot attach media to this issue","err");return;}
-    const isVid=/^video\//.test(f.type);
     setMediaUploading(true);
     try{
-      const ik=await uploadToImageKit(f,isVid?"inspectpro/videos":"inspectpro/photos");
+      const ik=await uploadToImageKit(file,isVid?"inspectpro/videos":"inspectpro/photos");
       const saved=await api.post("/api/media",{
         inspectionItemId:item.inspection_item_id,
         type:isVid?"video":"photo",
@@ -1488,6 +1599,23 @@ function TrackerItem({item,expanded,onToggle,onUpdateStatus,onNotePosted,authUse
       showToast("Media attached","ok");
     }catch(err){showToast("Upload failed: "+err.message,"err");}
     setMediaUploading(false);
+  };
+
+  const handleTrackerPhoto=e=>{
+    const f=e.target.files?.[0];if(!f)return;
+    e.target.value="";
+    setMarkupFile(f); // open markup before upload
+  };
+
+  const handleTrackerVideo=async e=>{
+    const f=e.target.files?.[0];if(!f)return;
+    e.target.value="";
+    await uploadMediaFile(f,true);
+  };
+
+  const handleMarkupSave=async annotated=>{
+    setMarkupFile(null);
+    await uploadMediaFile(annotated,false);
   };
 
   const media=localMedia??item.media??[];
@@ -1530,12 +1658,18 @@ function TrackerItem({item,expanded,onToggle,onUpdateStatus,onNotePosted,authUse
         <Mono size={11} color="var(--t3)" style={{textTransform:"uppercase"}}>Status:</Mono>
         {["open","in-progress","closed"].map(s=><button key={s} onClick={()=>onUpdateStatus(item.id,s)} style={{...C.btn(s==="closed"?"ok":s==="in-progress"?"sec":"dng",{padding:"5px 12px",fontSize:13}),opacity:item.status===s?1:.45,fontWeight:item.status===s?600:500}}>{s}</button>)}
       </div>
-      <div style={{marginBottom:12}}>
-        <label style={{display:"inline-flex",alignItems:"center",gap:7,cursor:"pointer"}}>
-          <span style={C.btn("ghost",{padding:"5px 11px",fontSize:12,border:"1px dashed var(--bd)",borderRadius:7})}>
-            {mediaUploading?<Spinner size={12}/>:"📎 Attach photo/video"}
+      <div style={{display:"flex",gap:7,flexWrap:"wrap",marginBottom:12}}>
+        <label style={{cursor:mediaUploading?"not-allowed":"pointer"}}>
+          <span style={C.btn("ghost",{padding:"5px 11px",fontSize:12,border:"1px dashed var(--bd)",borderRadius:7,opacity:mediaUploading?.5:1})}>
+            {mediaUploading?<Spinner size={12}/>:"📷 Camera"}
           </span>
-          <input type="file" accept="image/*,video/*" onChange={handleMediaUpload} style={{display:"none"}} disabled={mediaUploading}/>
+          <input ref={trackerPhotoRef} type="file" accept="image/*" capture="environment" onChange={handleTrackerPhoto} style={{display:"none"}} disabled={mediaUploading}/>
+        </label>
+        <label style={{cursor:mediaUploading?"not-allowed":"pointer"}}>
+          <span style={C.btn("ghost",{padding:"5px 11px",fontSize:12,border:"1px dashed var(--bd)",borderRadius:7,opacity:mediaUploading?.5:1})}>
+            🎥 Video
+          </span>
+          <input ref={trackerVideoRef} type="file" accept="video/*" capture="environment" onChange={handleTrackerVideo} style={{display:"none"}} disabled={mediaUploading}/>
         </label>
       </div>
       {loadingNotes?<div style={{padding:"8px"}}><Spinner/></div>:<>
@@ -1554,6 +1688,7 @@ function TrackerItem({item,expanded,onToggle,onUpdateStatus,onNotePosted,authUse
       </>}
     </div>}
     {lightbox&&<Lightbox items={lightbox.items} startIdx={lightbox.idx} onClose={()=>setLightbox(null)}/>}
+    {markupFile&&<PhotoMarkupModal file={markupFile} onSave={handleMarkupSave} onCancel={()=>setMarkupFile(null)}/>}
   </div>;
 }
 
