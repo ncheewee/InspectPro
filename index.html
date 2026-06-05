@@ -80,7 +80,7 @@ const {useState,useEffect,useRef,useCallback,useReducer} = React;
 // e.g. "https://inspectpro-api.railway.app"
 const API_BASE = window.INSPECTPRO_API || "https://inspectpro-api.onrender.com";
 
-const VERSION = "v5.4.2";
+const VERSION = "v5.4.3";
 const DAYS = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
 const isAdminRole = role => role === "admin";
 const isManagerRole = role => role === "manager" || role === "admin";
@@ -1632,7 +1632,8 @@ function TrackerItem({item,expanded,onToggle,onUpdateStatus,onNotePosted,authUse
   const media=localMedia??item.media??[];
   const openLightbox=(items,idx=0)=>setLightbox({items,idx});
 
-  const delTrackerMedia=async(mediaId)=>{
+  const delTrackerMedia=async(mediaId,type)=>{
+    if(!await showConfirm(`Delete this ${type||"file"}? This cannot be undone.`))return;
     try{
       await api.delete(`/api/media/${mediaId}`);
       setLocalMedia(p=>(p??item.media??[]).filter(m=>m.id!==mediaId));
@@ -1669,7 +1670,7 @@ function TrackerItem({item,expanded,onToggle,onUpdateStatus,onNotePosted,authUse
                     style={{width:80,height:80,objectFit:"cover",borderRadius:7,border:"1px solid var(--bd)",cursor:"zoom-in",display:"block"}}/>
                 :<div onClick={()=>{const lbItems=videos.map((x,j)=>({type:"video",url:x.url,caption:`Video ${j+1}`}));openLightbox(lbItems,videos.indexOf(m));}}
                     style={{width:80,height:80,borderRadius:7,border:"1px solid var(--bd)",background:"#000",display:"flex",alignItems:"center",justifyContent:"center",cursor:"zoom-in"}}><span style={{fontSize:28}}>🎥</span></div>}
-              <button onClick={e=>{e.stopPropagation();delTrackerMedia(m.id);}}
+              <button onClick={e=>{e.stopPropagation();delTrackerMedia(m.id,m.type);}}
                 style={{position:"absolute",top:3,right:3,width:18,height:18,background:"rgba(0,0,0,.72)",border:"none",color:"#fff",borderRadius:4,fontSize:10,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",lineHeight:1,padding:0}}>✕</button>
             </div>;
           })}
