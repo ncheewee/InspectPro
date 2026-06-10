@@ -80,7 +80,7 @@ const {useState,useEffect,useRef,useCallback,useReducer} = React;
 // e.g. "https://inspectpro-api.railway.app"
 const API_BASE = window.INSPECTPRO_API || "https://inspectpro-api.onrender.com";
 
-const VERSION = "v5.4.3";
+const VERSION = "v5.4.4";
 const DAYS = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
 const isAdminRole = role => role === "admin";
 const isManagerRole = role => role === "manager" || role === "admin";
@@ -1069,7 +1069,7 @@ function InspectView({authUser,zones,users,today,ejConfig,tgConfig}){
             if(ok>0)showToast("Report emailed ✓","ok");
           }
           const flagCount=(detail.items||[]).filter(i=>i.status==="flagged").length;
-          const tgMsg="Inspection complete: "+(detail.zone_name||detail.zone_id)+" · "+(inspector?.name||"")+(flagCount?" · "+flagCount+" flag"+( flagCount>1?"s":""):" · All clear");
+          const tgMsg=`✅ ${inspector?.name||detail.user_name} · ${detail.zone_id} done${flagCount?` · ⚠️ ${flagCount} flagged`:" · All clear"}`;
           await notifyTelegram("InspectPro",tgMsg,cfg);
         }catch(ex){console.warn("[notify]",ex);}
       })();
