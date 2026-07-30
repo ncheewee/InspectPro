@@ -80,7 +80,7 @@ const {useState,useEffect,useRef,useCallback,useReducer} = React;
 // e.g. "https://inspectpro-api.railway.app"
 const API_BASE = window.INSPECTPRO_API || "https://inspectpro-api.onrender.com";
 
-const VERSION = "v5.4.4";
+const VERSION = "v5.4.5";
 const DAYS = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
 const isAdminRole = role => role === "admin";
 const isManagerRole = role => role === "manager" || role === "admin";
@@ -161,6 +161,17 @@ const api = {
   _token: ()=>LS.load("ip_v4_token")||"",
   _authExpiredNotified: false,
 
+  // A 401 only ends the session when the server says the *token* is bad.
+  // Credential checks (login PIN, change-PIN) also return 401/403 and must not
+  // log the user out — that was the cause of "the app logs me out too quickly".
+  // Endpoints under /api/auth are never treated as session death by path alone,
+  // which also keeps this safe against an older backend that sends no `code`.
+  _isDeadSession(data, path){
+    const code = data && data.code;
+    if(code) return code==="TOKEN_EXPIRED"||code==="TOKEN_INVALID"||code==="TOKEN_MISSING";
+    return !String(path||"").startsWith("/api/auth/");
+  },
+
   async req(method, path, body, opts={}){
     const wakeTimer = _startWakeTimer();
     const headers = {"Content-Type":"application/json"};
@@ -175,7 +186,7 @@ const api = {
       wakeTimer.cancel();
       const data = await res.json();
       if(!res.ok){
-        if(res.status===401&&token&&!this._authExpiredNotified){
+        if(res.status===401&&token&&!opts.noAuthLogout&&this._isDeadSession(data,path)&&!this._authExpiredNotified){
           this._authExpiredNotified=true;
           window.dispatchEvent(new CustomEvent("ip_auth_expired"));
         }
@@ -712,8 +723,9 @@ function LoginModal({users,onLogin,onClose}){
     if(!user)return;
     setLoading(true);setErr("");
     try{
-      const res=await api.post("/api/auth/login",{userId:user.id,pin});
+      const res=await api.post("/api/auth/login",{userId:user.id,pin},{noAuthLogout:true});
       LS.save("ip_v4_token",res.token);
+      LS.save("ip_v4_token_ts",Date.now());
       api.resetAuthExpired();
       onLogin(res.user);
     }catch(e){
@@ -2041,16 +2053,31 @@ function ReportsView({users,zones,authUser}){
     const win=window.open("","_blank");
     const openIssues=(monthly.issues||[]).filter(i=>i.status!=="closed").length;
     const closedIssues=(monthly.issues||[]).filter(i=>i.status==="closed").length;
+    // Inline evidence: photos sit with their own observation, full-frame (never cropped),
+    // using m.url — the annotated/marked-up original, not the ImageKit square thumbnail.
+    const evidenceBlock=i=>{
+      const photos=(i.media||[]).filter(m=>m.type==="photo"&&(m.url||m.thumbnail_url));
+      const nVids =(i.media||[]).filter(m=>m.type==="video").length;
+      if(!photos.length&&!nVids) return "";
+      return `<div class="ev">
+        ${photos.map((m,n)=>`<figure><img src="${m.url||m.thumbnail_url}" alt=""/><figcaption>Photo ${n+1}${photos.length>1?` of ${photos.length}`:""}</figcaption></figure>`).join("")}
+        ${nVids?`<div class="vid">🎥 ${nVids} video${nVids>1?"s":""} — view in app</div>`:""}
+      </div>`;
+    };
     const issueRows=(monthly.issues||[]).map(i=>`
       <tr>
         <td>${i.zone_id} · ${i.zone_name}</td>
-        <td>${i.item_label}<br/><span>${i.observation||""}</span></td>
+        <td>
+          <div class="ilabel">${i.item_label}</div>
+          ${i.observation?`<div class="iobs">${i.observation}</div>`:""}
+          ${evidenceBlock(i)}
+        </td>
         <td><b class="${i.status==="closed"?"ok":"warn"}">${i.status}</b></td>
       </tr>`).join("");
     const inspRows=(monthly.inspections||[]).map(i=>`
       <tr><td>${fD(i.start_time)}</td><td>${i.zone_id} · ${i.zone_name}</td><td>${i.user_name}</td><td>${i.ok_count}/${i.total_items}</td><td>${i.flag_count}</td></tr>
     `).join("");
-    const evidence=(monthly.issues||[]).flatMap(i=>(i.media||[]).map(m=>({issue:i,url:m.thumbnail_url||m.url,type:m.type}))).slice(0,8);
+    const totalPhotos=(monthly.issues||[]).reduce((n,i)=>n+(i.media||[]).filter(m=>m.type==="photo").length,0);
     win.document.write(`<!doctype html><html><head><title>InspectPro Monthly Report ${monthly.month}</title>
       <style>
         body{font-family:Arial,Helvetica,sans-serif;color:#0f172a;margin:36px;line-height:1.45}
@@ -2058,8 +2085,19 @@ function ReportsView({users,zones,authUser}){
         .sub{color:#64748b;margin-bottom:22px}.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:18px 0}
         .card{background:#f8fafc;border:1px solid #e2e8f0;border-radius:14px;padding:14px}.num{font-size:28px;font-weight:800}
         table{width:100%;border-collapse:collapse;font-size:12px;margin-top:8px}th,td{border-bottom:1px solid #e2e8f0;text-align:left;padding:8px;vertical-align:top}th{background:#f8fafc;color:#475569}
-        .ok{color:#059669}.warn{color:#dc2626}.evidence{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}.evidence img{width:100%;height:110px;object-fit:cover;border-radius:10px;border:1px solid #e2e8f0}
-        @media print{body{margin:22mm}.no-print{display:none}.card{break-inside:avoid}}
+        .ok{color:#059669}.warn{color:#dc2626}
+        .ilabel{font-weight:700;color:#0f172a}
+        .iobs{font-size:12px;color:#334155;background:#f8fafc;border-left:3px solid #dc2626;padding:5px 9px;border-radius:0 4px 4px 0;margin-top:4px}
+        .ev{display:flex;flex-wrap:wrap;gap:10px;margin-top:8px}
+        .ev figure{margin:0;break-inside:avoid;page-break-inside:avoid}
+        .ev img{display:block;max-width:320px;max-height:240px;width:auto;height:auto;object-fit:contain;border:1px solid #e2e8f0;border-radius:8px;background:#fff}
+        .ev figcaption{font-size:10px;color:#64748b;margin-top:3px}
+        .vid{font-size:11px;color:#64748b;background:#f1f5f9;padding:4px 8px;border-radius:5px;align-self:flex-start}
+        @media print{
+          body{margin:16mm}.no-print{display:none}.card{break-inside:avoid}
+          tr{break-inside:avoid;page-break-inside:avoid}
+          .ev img{max-width:78mm;max-height:62mm}
+        }
       </style></head><body>
       <button class="no-print" onclick="window.print()" style="position:fixed;right:24px;top:18px;padding:10px 16px;border:0;border-radius:10px;background:#f59e0b;color:white;font-weight:700;">Save as PDF</button>
       <h1>InspectPro Monthly Management Report</h1><div class="sub">${monthly.month} · Generated ${fD(new Date())}</div>
@@ -2071,8 +2109,9 @@ function ReportsView({users,zones,authUser}){
       </div>
       <p><b>Management assurance:</b> ${monthly.summary.inspections} inspections completed, ${closedIssues} issue(s) closed, and ${openIssues} open issue(s) actively visible in the tracker.</p>
       <h2>Inspection Completion Log</h2><table><thead><tr><th>Date</th><th>Zone</th><th>Inspector</th><th>OK</th><th>Flags</th></tr></thead><tbody>${inspRows}</tbody></table>
-      <h2>Issue Tracker Summary</h2><table><thead><tr><th>Zone</th><th>Observation</th><th>Status</th></tr></thead><tbody>${issueRows||"<tr><td colspan='3'>No issues raised.</td></tr>"}</tbody></table>
-      ${evidence.length?`<h2>Evidence Gallery</h2><div class="evidence">${evidence.map(e=>`<div><img src="${e.url}"><div style="font-size:11px;color:#64748b;margin-top:4px">${e.issue.zone_id} · ${e.issue.item_label}</div></div>`).join("")}</div>`:""}
+      <h2>Issue Tracker Summary &amp; Evidence</h2>
+      <div class="sub" style="margin:0;font-size:12px">${totalPhotos} photo${totalPhotos===1?"":"s"} shown inline with their observations — images are unmodified, as captured and marked up on site.</div>
+      <table><thead><tr><th style="width:22%">Zone</th><th>Observation &amp; Evidence</th><th style="width:12%">Status</th></tr></thead><tbody>${issueRows||"<tr><td colspan='3'>No issues raised.</td></tr>"}</tbody></table>
       </body></html>`);
     win.document.close();
   };
@@ -2258,10 +2297,11 @@ function AdminPanel({authUser,users,setUsers,zones,setZones,onClose,ejConfig,set
     if(pin!==np){setPm("PINs don't match.");setPs("new");setNp("");return;}
     setPl(true);setPm("");
     try{
-      await api.put("/api/auth/pin",{currentPin:oldPin,newPin:np});
+      await api.put("/api/auth/pin",{currentPin:oldPin,newPin:np},{noAuthLogout:true});
       setPm("✓ PIN updated!");setPs("done");
     }catch(e){
-      if(e.status===401){setPm("Current PIN incorrect.");setPs("old");setOldPin("");}
+      // 403/BAD_CURRENT_PIN is the current backend; 401 kept for older deploys.
+      if(e.status===403||e.status===401){setPm("Current PIN incorrect.");setPs("old");setOldPin("");}
       else{setPm("Update failed: "+e.message);setPs("old");}
     }
     setPl(false);
@@ -2596,10 +2636,42 @@ function App(){
 
   // JWT expired — auto-logout
   useEffect(()=>{
-    const handler=()=>{setAuthUser(null);localStorage.removeItem("ip_v4_token");setView("home");setShowLogin(true);showToast("Session expired — please sign in again","err");};
+    const handler=()=>{setAuthUser(null);localStorage.removeItem("ip_v4_token");localStorage.removeItem("ip_v4_token_ts");setView("home");setShowLogin(true);showToast("Session expired — please sign in again","err");};
     window.addEventListener("ip_auth_expired",handler);
     return()=>window.removeEventListener("ip_auth_expired",handler);
   },[]);
+
+  // ── SLIDING SESSION ────────────────────────────────────────────────────────
+  // Validate the stored token on launch and slide it forward whenever the app
+  // comes back to the foreground (throttled to every 6 h). An actively used
+  // device therefore never gets signed out, and a genuinely dead session is
+  // caught at launch — at the login screen — instead of mid-inspection.
+  useEffect(()=>{
+    if(!authUser) return;
+    let cancelled=false;
+    const REFRESH_AFTER=6*60*60*1000;
+    const renew=async(force)=>{
+      if(!LS.load("ip_v4_token")) return;
+      const last=LS.load("ip_v4_token_ts")||0;
+      if(!force&&Date.now()-last<REFRESH_AFTER) return;
+      try{
+        const r=await api.post("/api/auth/refresh");
+        if(cancelled||!r?.token) return;
+        LS.save("ip_v4_token",r.token);
+        LS.save("ip_v4_token_ts",Date.now());
+        api.resetAuthExpired();
+        if(r.user) setAuthUser(p=>({...p,...r.user}));
+      }catch(e){
+        // 401 already dispatched ip_auth_expired via the API client.
+        // Offline or cold-start failures are ignored — the stored token stays valid.
+      }
+    };
+    renew(true);
+    const onVisible=()=>{ if(document.visibilityState==="visible") renew(false); };
+    document.addEventListener("visibilitychange",onVisible);
+    window.addEventListener("focus",onVisible);
+    return()=>{cancelled=true;document.removeEventListener("visibilitychange",onVisible);window.removeEventListener("focus",onVisible);};
+  },[authUser?.id]);
 
   // Bootstrap: load users + zones on mount
   useEffect(()=>{
@@ -2619,7 +2691,7 @@ function App(){
   },[authUser?.role]);
 
   const handleLogin=u=>{setAuthUser(u);setShowLogin(false);};
-  const handleLogout=()=>{setAuthUser(null);localStorage.removeItem("ip_v4_token");api.resetAuthExpired();setView("home");setShowLogin(true);};
+  const handleLogout=()=>{setAuthUser(null);localStorage.removeItem("ip_v4_token");localStorage.removeItem("ip_v4_token_ts");api.resetAuthExpired();setView("home");setShowLogin(true);};
   const nav=v=>{
     if(v==="reports"&&!canManageOps(authUser))return;
     setView(v);
