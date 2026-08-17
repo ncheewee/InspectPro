@@ -80,7 +80,7 @@ const {useState,useEffect,useRef,useCallback,useReducer} = React;
 // e.g. "https://inspectpro-api.railway.app"
 const API_BASE = window.INSPECTPRO_API || "https://inspectpro-api.onrender.com";
 
-const VERSION = "v5.4.5";
+const VERSION = "v5.4.6";
 const DAYS = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
 const isAdminRole = role => role === "admin";
 const isManagerRole = role => role === "manager" || role === "admin";
@@ -2726,7 +2726,7 @@ function App(){
     {serverWaking&&<div className="waking-bar" style={{top:(updateReady&&!isOnline)?64:(updateReady||!isOnline)?32:0}}><span className="waking-spinner"/><span>Server is waking up — this takes about 30 seconds on first load. Hang tight!</span></div>}
     <div style={{marginTop:[updateReady,!isOnline,serverWaking].filter(Boolean).length*32}}>
       <NavBar view={view} nav={nav} authUser={authUser} onSignIn={()=>setShowLogin(true)} onSignOut={handleLogout} theme={theme} setTheme={setTheme} onAdmin={()=>setShowAdmin(true)}/>
-      {authUser&&<button onClick={()=>setShowFeedback(true)} style={{position:"fixed",top:56,right:16,zIndex:195,background:"var(--blue)",color:"#fff",border:"none",borderRadius:20,padding:"6px 14px",fontSize:13,fontWeight:600,cursor:"pointer",boxShadow:"0 2px 8px rgba(0,0,0,.25)",letterSpacing:".01em"}}>💬 Feedback</button>}
+      {authUser&&<button onClick={()=>setShowFeedback(true)} style={{position:"fixed",top:56,right:16,zIndex:195,background:"var(--green)",color:"#fff",border:"none",borderRadius:20,padding:"6px 14px",fontSize:13,fontWeight:600,cursor:"pointer",boxShadow:"0 2px 8px rgba(0,0,0,.25)",letterSpacing:".01em"}}>💬 Feedback</button>}
       <div className="main-pad" style={{maxWidth:1140,margin:"0 auto"}}>
         {bootstrapErr&&<div style={{padding:"20px",background:"var(--op-bg)",borderRadius:12,color:"var(--op-fg)",marginBottom:16,fontSize:14}}>
           ⚠ {bootstrapErr}<br/><span style={{fontSize:12,opacity:.8}}>API: {API_BASE}</span>
