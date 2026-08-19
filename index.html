@@ -80,7 +80,7 @@ const {useState,useEffect,useRef,useCallback,useReducer} = React;
 // e.g. "https://inspectpro-api.railway.app"
 const API_BASE = window.INSPECTPRO_API || "https://inspectpro-api.onrender.com";
 
-const VERSION = "v5.4.7";
+const VERSION = "v5.4.8";
 const DAYS = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
 const isAdminRole = role => role === "admin";
 const isManagerRole = role => role === "manager" || role === "admin";
@@ -413,48 +413,89 @@ async function notifyTelegram(subject, body, cfg) {
 // ── LIGHTBOX ──────────────────────────────────────────────────────────────────
 // Full-screen photo/video viewer. Photos use CDN url, videos use CDN url.
 function Lightbox({items, startIdx=0, onClose}) {
-  const [idx,setIdx] = useState(startIdx);
-  const swipe=useRef(null);
-  const item = items[idx];
-  const prev = () => setIdx(i => (i-1+items.length)%items.length);
-  const next = () => setIdx(i => (i+1)%items.length);
-  const onTouchStart=e=>{
-    if(e.touches.length!==1){swipe.current=null;return;}
-    const t=e.touches[0];
-    swipe.current={x:t.clientX,y:t.clientY};
+  const n=items.length;
+  const [idx,setIdx]=useState(startIdx);
+  const [shift,setShift]=useState(0);
+  const [sliding,setSliding]=useState(false);
+  const pending=useRef(null);
+  const touch=useRef(null);
+  const dragged=useRef(false);
+  const item=items[idx];
+  const prevItem=n>1?items[(idx-1+n)%n]:null;
+  const nextItem=n>1?items[(idx+1)%n]:null;
+  const slideTo=dir=>{
+    if(n<2||pending.current!=null) return;
+    pending.current=dir;
+    setSliding(true);
+    setShift(dir>0?-window.innerWidth:window.innerWidth);
   };
-  const onTouchEnd=e=>{
-    if(!swipe.current||items.length<2){swipe.current=null;return;}
-    const t=e.changedTouches[0];
-    const dx=t.clientX-swipe.current.x, dy=t.clientY-swipe.current.y;
-    swipe.current=null;
-    if(Math.abs(dx)<48||Math.abs(dx)<=Math.abs(dy)) return;
-    if(dx<0) next(); else prev();
+  const settle=()=>{
+    const dir=pending.current;
+    pending.current=null;
+    setSliding(false);
+    setShift(0);
+    if(dir) setIdx(i=>(i+dir+n)%n);
+  };
+  const onTouchStart=e=>{
+    if(n<2||pending.current!=null||e.touches.length!==1){touch.current=null;return;}
+    const t=e.touches[0];
+    touch.current={x:t.clientX,y:t.clientY,lock:null};
+  };
+  const onTouchMove=e=>{
+    const s=touch.current; if(!s) return;
+    const t=e.touches[0];
+    const dx=t.clientX-s.x, dy=t.clientY-s.y;
+    if(!s.lock&&(Math.abs(dx)>8||Math.abs(dy)>8)) s.lock=Math.abs(dx)>Math.abs(dy)?"h":"v";
+    if(s.lock!=="h") return;
+    dragged.current=true;
+    s.dx=dx;
+    setShift(dx);
+  };
+  const onTouchEnd=()=>{
+    const s=touch.current; touch.current=null;
+    if(!s||s.lock!=="h") return;
+    const dx=s.dx||0;
+    const threshold=Math.max(48,window.innerWidth*0.18);
+    if(Math.abs(dx)>=threshold) slideTo(dx<0?1:-1);
+    else { setSliding(true); setShift(0); }
   };
   useEffect(()=>{
     const h=e=>{
-      if(e.key==="Escape")  onClose();
-      if(e.key==="ArrowLeft")  prev();
-      if(e.key==="ArrowRight") next();
+      if(e.key==="Escape") onClose();
+      if(e.key==="ArrowLeft") slideTo(-1);
+      if(e.key==="ArrowRight") slideTo(1);
     };
     document.addEventListener("keydown",h);
     return()=>document.removeEventListener("keydown",h);
-  },[idx]);
-
-  return <div onClick={onClose} onTouchStart={onTouchStart} onTouchEnd={onTouchEnd} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.92)",zIndex:600,display:"flex",alignItems:"center",justifyContent:"center",padding:16,touchAction:"pan-y"}}>
-    <div style={{position:"absolute",top:16,left:"50%",transform:"translateX(-50%)",background:"rgba(0,0,0,.6)",color:"#fff",fontSize:13,padding:"4px 12px",borderRadius:20,pointerEvents:"none"}}>
-      {idx+1} / {items.length}
+  },[idx,n]);
+  const media=(it,active)=>{
+    if(!it) return null;
+    const box={maxWidth:"90vw",maxHeight:"85vh",borderRadius:8,objectFit:"contain",boxShadow:"0 8px 40px rgba(0,0,0,.6)"};
+    return it.type==="photo"
+      ? <img src={it.url} alt="" draggable={false} style={{...box,pointerEvents:"none"}}/>
+      : <video src={it.url} controls={!!active} autoPlay={!!active} muted={!active} playsInline style={{...box,background:"#000"}}/>;
+  };
+  const cell=ch=><div style={{flex:"0 0 100vw",height:"100%",display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>{ch}</div>;
+  return <div
+    onClick={()=>{if(dragged.current){dragged.current=false;return;} onClose();}}
+    onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}
+    style={{position:"fixed",inset:0,background:"rgba(0,0,0,.92)",zIndex:600,overflow:"hidden",touchAction:n>1?"none":"auto"}}>
+    <div style={{position:"absolute",top:16,left:"50%",transform:"translateX(-50%)",background:"rgba(0,0,0,.6)",color:"#fff",fontSize:13,padding:"4px 12px",borderRadius:20,pointerEvents:"none",zIndex:2}}>
+      {idx+1} / {n}
     </div>
-    <button onClick={onClose} style={{position:"absolute",top:14,right:16,background:"rgba(255,255,255,.15)",border:"none",color:"#fff",fontSize:22,cursor:"pointer",borderRadius:8,width:38,height:38,display:"flex",alignItems:"center",justifyContent:"center",zIndex:1}}>✕</button>
-    {items.length>1&&<button onClick={e=>{e.stopPropagation();prev();}} style={{position:"absolute",left:12,background:"rgba(255,255,255,.15)",border:"none",color:"#fff",fontSize:22,cursor:"pointer",borderRadius:8,width:44,height:44,display:"flex",alignItems:"center",justifyContent:"center"}}>‹</button>}
-    <div onClick={e=>e.stopPropagation()} style={{maxWidth:"95vw",maxHeight:"88vh",display:"flex",alignItems:"center",justifyContent:"center"}}>
-      {item?.type==="photo"
-        ? <img src={item.url} style={{maxWidth:"90vw",maxHeight:"85vh",borderRadius:8,objectFit:"contain",boxShadow:"0 8px 40px rgba(0,0,0,.6)"}} alt=""/>
-        : <video src={item.url} controls autoPlay playsInline style={{maxWidth:"90vw",maxHeight:"85vh",borderRadius:8,background:"#000"}}/>
-      }
+    <button onClick={e=>{e.stopPropagation();onClose();}} style={{position:"absolute",top:14,right:16,background:"rgba(255,255,255,.15)",border:"none",color:"#fff",fontSize:22,cursor:"pointer",borderRadius:8,width:38,height:38,display:"flex",alignItems:"center",justifyContent:"center",zIndex:2}}>✕</button>
+    {n>1&&<button onClick={e=>{e.stopPropagation();slideTo(-1);}} style={{position:"absolute",left:12,zIndex:2,background:"rgba(255,255,255,.15)",border:"none",color:"#fff",fontSize:22,cursor:"pointer",borderRadius:8,width:44,height:44,display:"flex",alignItems:"center",justifyContent:"center"}}>‹</button>}
+    <div onClick={e=>e.stopPropagation()} style={{height:"100%"}}>
+      <div
+        onTransitionEnd={e=>{if(e.target===e.currentTarget) settle();}}
+        style={{display:"flex",height:"100%",width:n>1?"300vw":"100vw",transform:n>1?`translateX(calc(-100vw + ${shift}px))`:"none",transition:sliding?"transform .28s cubic-bezier(.22,1,.36,1)":"none",willChange:"transform"}}>
+        {n>1&&cell(media(prevItem,false))}
+        {cell(media(item,true))}
+        {n>1&&cell(media(nextItem,false))}
+      </div>
     </div>
-    {item?.caption&&<div style={{position:"absolute",bottom:16,left:"50%",transform:"translateX(-50%)",background:"rgba(0,0,0,.7)",color:"#fff",fontSize:13,padding:"6px 14px",borderRadius:20,maxWidth:"80vw",textAlign:"center",pointerEvents:"none"}}>{item.caption}</div>}
-    {items.length>1&&<button onClick={e=>{e.stopPropagation();next();}} style={{position:"absolute",right:12,background:"rgba(255,255,255,.15)",border:"none",color:"#fff",fontSize:22,cursor:"pointer",borderRadius:8,width:44,height:44,display:"flex",alignItems:"center",justifyContent:"center"}}>›</button>}
+    {item?.caption&&<div style={{position:"absolute",bottom:16,left:"50%",transform:"translateX(-50%)",background:"rgba(0,0,0,.7)",color:"#fff",fontSize:13,padding:"6px 14px",borderRadius:20,maxWidth:"80vw",textAlign:"center",pointerEvents:"none",zIndex:2}}>{item.caption}</div>}
+    {n>1&&<button onClick={e=>{e.stopPropagation();slideTo(1);}} style={{position:"absolute",right:12,zIndex:2,background:"rgba(255,255,255,.15)",border:"none",color:"#fff",fontSize:22,cursor:"pointer",borderRadius:8,width:44,height:44,display:"flex",alignItems:"center",justifyContent:"center"}}>›</button>}
   </div>;
 }
 
