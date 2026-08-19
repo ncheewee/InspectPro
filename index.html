@@ -80,7 +80,7 @@ const {useState,useEffect,useRef,useCallback,useReducer} = React;
 // e.g. "https://inspectpro-api.railway.app"
 const API_BASE = window.INSPECTPRO_API || "https://inspectpro-api.onrender.com";
 
-const VERSION = "v5.4.6";
+const VERSION = "v5.4.7";
 const DAYS = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
 const isAdminRole = role => role === "admin";
 const isManagerRole = role => role === "manager" || role === "admin";
@@ -414,9 +414,23 @@ async function notifyTelegram(subject, body, cfg) {
 // Full-screen photo/video viewer. Photos use CDN url, videos use CDN url.
 function Lightbox({items, startIdx=0, onClose}) {
   const [idx,setIdx] = useState(startIdx);
+  const swipe=useRef(null);
   const item = items[idx];
   const prev = () => setIdx(i => (i-1+items.length)%items.length);
   const next = () => setIdx(i => (i+1)%items.length);
+  const onTouchStart=e=>{
+    if(e.touches.length!==1){swipe.current=null;return;}
+    const t=e.touches[0];
+    swipe.current={x:t.clientX,y:t.clientY};
+  };
+  const onTouchEnd=e=>{
+    if(!swipe.current||items.length<2){swipe.current=null;return;}
+    const t=e.changedTouches[0];
+    const dx=t.clientX-swipe.current.x, dy=t.clientY-swipe.current.y;
+    swipe.current=null;
+    if(Math.abs(dx)<48||Math.abs(dx)<=Math.abs(dy)) return;
+    if(dx<0) next(); else prev();
+  };
   useEffect(()=>{
     const h=e=>{
       if(e.key==="Escape")  onClose();
@@ -427,7 +441,7 @@ function Lightbox({items, startIdx=0, onClose}) {
     return()=>document.removeEventListener("keydown",h);
   },[idx]);
 
-  return <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.92)",zIndex:600,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+  return <div onClick={onClose} onTouchStart={onTouchStart} onTouchEnd={onTouchEnd} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.92)",zIndex:600,display:"flex",alignItems:"center",justifyContent:"center",padding:16,touchAction:"pan-y"}}>
     <div style={{position:"absolute",top:16,left:"50%",transform:"translateX(-50%)",background:"rgba(0,0,0,.6)",color:"#fff",fontSize:13,padding:"4px 12px",borderRadius:20,pointerEvents:"none"}}>
       {idx+1} / {items.length}
     </div>
