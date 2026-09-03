@@ -80,7 +80,7 @@ const {useState,useEffect,useRef,useCallback,useReducer} = React;
 // e.g. "https://inspectpro-api.railway.app"
 const API_BASE = window.INSPECTPRO_API || "https://inspectpro-api.onrender.com";
 
-const VERSION = "v5.4.10";
+const VERSION = "v5.4.11";
 const OPEN_INSP_KEY = "ip_open_insp_id";
 function normalizeInsp(insp){
   return {...insp, items:(insp.items||[]).map(it=>({...it, media:it.media||[]}))};
@@ -1172,7 +1172,9 @@ function InspectView({authUser,zones,users,today,ejConfig,tgConfig}){
   const cancelInspection=async()=>{
     if(!await showConfirm("Cancel this inspection? Progress and photos for it will be discarded."))return;
     try{
-      if(activeInsp?.id) await api.delete("/api/inspections/"+activeInsp.id);
+      const zoneId=activeInsp?.zone_id;
+      if(zoneId) await api.delete("/api/inspections/open?zone="+encodeURIComponent(zoneId));
+      else if(activeInsp?.id) await api.delete("/api/inspections/"+activeInsp.id);
     }catch(e){ setErr("Could not discard: "+e.message); return; }
     clearOpenInsp();
     setActiveInsp(null);setStep("select");
