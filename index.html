@@ -80,12 +80,20 @@ const {useState,useEffect,useRef,useCallback,useReducer} = React;
 // e.g. "https://inspectpro-api.railway.app"
 const API_BASE = window.INSPECTPRO_API || "https://inspectpro-api.onrender.com";
 
-const VERSION = "v5.4.9";
+const VERSION = "v5.4.10";
 const OPEN_INSP_KEY = "ip_open_insp_id";
 function normalizeInsp(insp){
   return {...insp, items:(insp.items||[]).map(it=>({...it, media:it.media||[]}))};
 }
 function clearOpenInsp(){ try{ localStorage.removeItem(OPEN_INSP_KEY); }catch{} }
+function latestOpenPerZone(rows, userId){
+  const mine=(Array.isArray(rows)?rows:[]).filter(i=>!i.end_time&&i.user_id===userId&&i.zone_id);
+  const by={};
+  for(const i of mine){
+    if(!by[i.zone_id]||new Date(i.start_time)>new Date(by[i.zone_id].start_time)) by[i.zone_id]=i;
+  }
+  return Object.values(by).sort((a,b)=>new Date(b.start_time)-new Date(a.start_time));
+}
 const DAYS = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
 const isAdminRole = role => role === "admin";
 const isManagerRole = role => role === "manager" || role === "admin";
@@ -1095,8 +1103,7 @@ function InspectView({authUser,zones,users,today,ejConfig,tgConfig}){
   const loadOpen=()=>{
     if(!authUser) return;
     api.get("/api/inspections?open=1&limit=50").then(rows=>{
-      const list=(Array.isArray(rows)?rows:[]).filter(i=>!i.end_time&&i.user_id===authUser.id);
-      setOpenList(list);
+      setOpenList(latestOpenPerZone(rows, authUser.id));
     }).catch(()=>setOpenList([]));
   };
 
@@ -1116,7 +1123,7 @@ function InspectView({authUser,zones,users,today,ejConfig,tgConfig}){
     setErr("");
     try{
       const rows=await api.get("/api/inspections?open=1&limit=50&zone="+encodeURIComponent(zoneId));
-      const mine=(Array.isArray(rows)?rows:[]).filter(i=>!i.end_time&&i.user_id===authUser.id&&i.zone_id===zoneId);
+      const mine=latestOpenPerZone(rows, authUser.id).filter(i=>i.zone_id===zoneId);
       if(mine.length){
         const latest=[...mine].sort((a,b)=>new Date(b.start_time)-new Date(a.start_time))[0];
         return resumeInspection(latest.id);
@@ -1163,7 +1170,10 @@ function InspectView({authUser,zones,users,today,ejConfig,tgConfig}){
 
   const finishZone=()=>setStep("summary");
   const cancelInspection=async()=>{
-    if(!await showConfirm("Leave this inspection? It stays open — resume it from the Inspect tab."))return;
+    if(!await showConfirm("Cancel this inspection? Progress and photos for it will be discarded."))return;
+    try{
+      if(activeInsp?.id) await api.delete("/api/inspections/"+activeInsp.id);
+    }catch(e){ setErr("Could not discard: "+e.message); return; }
     clearOpenInsp();
     setActiveInsp(null);setStep("select");
   };
@@ -1228,7 +1238,7 @@ function SelectStep({zones,users,authUser,today,openList=[],onStart,onResume}){
   const [selZone,setSelZone]=useState("");
   const [loading,setLoading]=useState(true);
   const wk=wkKey(today),dn=dowN(today);
-  const openFor=zoneId=>openList.find(o=>o.zone_id===zoneId);
+  const openFor=zoneId=>zoneId?openList.find(o=>o.zone_id===zoneId):null;
 
   useEffect(()=>{
     api.get(`/api/roster?week=${wk}`).then(d=>setRoster(d)).catch(()=>{}).finally(()=>setLoading(false));
