@@ -80,7 +80,12 @@ const {useState,useEffect,useRef,useCallback,useReducer} = React;
 // e.g. "https://inspectpro-api.railway.app"
 const API_BASE = window.INSPECTPRO_API || "https://inspectpro-api.onrender.com";
 
-const VERSION = "v5.4.8";
+const VERSION = "v5.4.9";
+const OPEN_INSP_KEY = "ip_open_insp_id";
+function normalizeInsp(insp){
+  return {...insp, items:(insp.items||[]).map(it=>({...it, media:it.media||[]}))};
+}
+function clearOpenInsp(){ try{ localStorage.removeItem(OPEN_INSP_KEY); }catch{} }
 const DAYS = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
 const isAdminRole = role => role === "admin";
 const isManagerRole = role => role === "manager" || role === "admin";
@@ -1082,17 +1087,65 @@ function HomeView({today,authUser,users,zones,nav,isOnline}){
 function InspectView({authUser,zones,users,today,ejConfig,tgConfig}){
   const [step,setStep]=useState("select");
   const [activeInsp,setActiveInsp]=useState(null); // {id, items:[...], zoneId, ...}
+  const [openList,setOpenList]=useState([]);
+  const [restoring,setRestoring]=useState(()=>!!LS.load(OPEN_INSP_KEY));
   const [sending,setSending]=useState(false);
   const [err,setErr]=useState("");
+
+  const loadOpen=()=>{
+    if(!authUser) return;
+    api.get("/api/inspections?open=1&limit=50").then(rows=>{
+      const list=(Array.isArray(rows)?rows:[]).filter(i=>!i.end_time&&i.user_id===authUser.id);
+      setOpenList(list);
+    }).catch(()=>setOpenList([]));
+  };
+
+  const resumeInspection=async(id)=>{
+    setErr("");
+    try{
+      const insp=await api.get("/api/inspections/"+id);
+      if(insp.end_time){ setErr("That inspection was already submitted."); clearOpenInsp(); loadOpen(); return; }
+      if(insp.user_id!==authUser.id){ setErr("That inspection belongs to another user."); return; }
+      LS.save(OPEN_INSP_KEY, insp.id);
+      setActiveInsp(normalizeInsp(insp));
+      setStep("zone");
+    }catch(e){setErr("Could not resume: "+e.message); clearOpenInsp();}
+  };
 
   const startInspection=async(zoneId)=>{
     setErr("");
     try{
+      const rows=await api.get("/api/inspections?open=1&limit=50&zone="+encodeURIComponent(zoneId));
+      const mine=(Array.isArray(rows)?rows:[]).filter(i=>!i.end_time&&i.user_id===authUser.id&&i.zone_id===zoneId);
+      if(mine.length){
+        const latest=[...mine].sort((a,b)=>new Date(b.start_time)-new Date(a.start_time))[0];
+        return resumeInspection(latest.id);
+      }
       const insp=await api.post("/api/inspections",{zoneId,startTime:new Date().toISOString()});
-      setActiveInsp(insp);
+      LS.save(OPEN_INSP_KEY, insp.id);
+      setActiveInsp(normalizeInsp(insp));
       setStep("zone");
     }catch(e){setErr("Could not start inspection: "+e.message);}
   };
+
+  useEffect(()=>{
+    let cancelled=false;
+    (async()=>{
+      const id=LS.load(OPEN_INSP_KEY);
+      if(!id||!authUser){ setRestoring(false); return; }
+      try{
+        const insp=await api.get("/api/inspections/"+id);
+        if(cancelled) return;
+        if(insp.end_time||insp.user_id!==authUser.id){ clearOpenInsp(); setRestoring(false); return; }
+        setActiveInsp(normalizeInsp(insp));
+        setStep("zone");
+      }catch{ clearOpenInsp(); }
+      if(!cancelled) setRestoring(false);
+    })();
+    return()=>{cancelled=true;};
+  },[authUser?.id]);
+
+  useEffect(()=>{ if(step==="select") loadOpen(); },[step,authUser?.id]);
 
   const updateItem=async(itemId,upd)=>{
     try{
@@ -1110,7 +1163,8 @@ function InspectView({authUser,zones,users,today,ejConfig,tgConfig}){
 
   const finishZone=()=>setStep("summary");
   const cancelInspection=async()=>{
-    if(!await showConfirm("Cancel this inspection? It will remain open and can be resumed later."))return;
+    if(!await showConfirm("Leave this inspection? It stays open — resume it from the Inspect tab."))return;
+    clearOpenInsp();
     setActiveInsp(null);setStep("select");
   };
 
@@ -1119,6 +1173,7 @@ function InspectView({authUser,zones,users,today,ejConfig,tgConfig}){
     try{
       const endTime=new Date().toISOString();
       await api.put(`/api/inspections/${activeInsp.id}/complete`,{endTime});
+      clearOpenInsp();
       // Send notifications in background — use activeInsp (has user_id, start_time, items)
       const detail={...activeInsp, end_time: endTime};
       (async()=>{
@@ -1151,9 +1206,11 @@ function InspectView({authUser,zones,users,today,ejConfig,tgConfig}){
     <p style={{color:"var(--t2)",fontSize:14}}>Use the Sign In button in the top bar.</p>
   </div>;
 
+  if(restoring) return <div style={{textAlign:"center",padding:"48px 16px"}}><Spinner size={24}/><p style={{marginTop:12,color:"var(--t3)",fontSize:14}}>Restoring inspection…</p></div>;
+
   return <div>
     {err&&<ErrBox msg={err}/>}
-    {step==="select"&&<SelectStep zones={zones} users={users} authUser={authUser} today={today} onStart={startInspection}/>}
+    {step==="select"&&<SelectStep zones={zones} users={users} authUser={authUser} today={today} openList={openList} onStart={startInspection} onResume={resumeInspection}/>}
     {step==="zone"&&activeInsp&&<ZoneStep inspection={activeInsp} updateItem={updateItem} addMedia={addMediaToItem} removeMedia={removeMediaFromItem} onFinish={finishZone} onCancel={cancelInspection} users={users}/>}
     {step==="summary"&&activeInsp&&<SummaryStep inspection={activeInsp} users={users} zones={zones} onSubmit={submitInspection} sending={sending}/>}
     {step==="done"&&<div style={{maxWidth:480,margin:"60px auto",textAlign:"center",padding:"0 16px"}}>
@@ -1165,12 +1222,13 @@ function InspectView({authUser,zones,users,today,ejConfig,tgConfig}){
   </div>;
 }
 
-function SelectStep({zones,users,authUser,today,onStart}){
+function SelectStep({zones,users,authUser,today,openList=[],onStart,onResume}){
   const [roster,setRoster]=useState({});
   const [custom,setCustom]=useState(false);
   const [selZone,setSelZone]=useState("");
   const [loading,setLoading]=useState(true);
   const wk=wkKey(today),dn=dowN(today);
+  const openFor=zoneId=>openList.find(o=>o.zone_id===zoneId);
 
   useEffect(()=>{
     api.get(`/api/roster?week=${wk}`).then(d=>setRoster(d)).catch(()=>{}).finally(()=>setLoading(false));
@@ -1186,17 +1244,33 @@ function SelectStep({zones,users,authUser,today,onStart}){
       <div><div style={{fontWeight:600,fontSize:16,color:"var(--t1)"}}>{authUser?.name}</div>
       <Mono size={12}>{authUser?.role?.toUpperCase()}</Mono></div>
     </div>
+    {openList.length>0&&<div style={C.card({marginBottom:14,border:"1px solid var(--amber)55"})}>
+      <div style={{fontSize:14,fontWeight:700,background:"var(--abg)",color:"var(--amber)",padding:"5px 12px",borderRadius:20,display:"inline-block",marginBottom:12}}>In progress</div>
+      {openList.map(o=>{
+        const z=zones.find(z=>z.id===o.zone_id);
+        const done=(o.ok_count||0)+(o.flag_count||0);
+        return <div key={o.id} style={{background:"var(--surf)",borderRadius:9,padding:"12px 14px",display:"flex",alignItems:"center",gap:12,marginBottom:6}}>
+          <Mono size={13} color="var(--amber)" style={{background:"var(--abg)",padding:"4px 9px",borderRadius:6,flexShrink:0}}>{o.zone_id}</Mono>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontWeight:600,fontSize:15,color:"var(--t1)"}}>{z?.name||o.zone_name}</div>
+            <Mono size={11} color="var(--t3)">{done}/{o.total_items||0} done · started {fD(o.start_time)} {fT(o.start_time)}</Mono>
+          </div>
+          <button onClick={()=>onResume(o.id)} style={C.btn("pri",{padding:"11px 18px",fontSize:15})}>Resume →</button>
+        </div>;
+      })}
+    </div>}
     {loading?<div style={{textAlign:"center",padding:"24px"}}><Spinner/></div>:
       mySlots.length>0
         ?<div style={C.card({marginBottom:14,border:"1px solid var(--green)33"})}>
           <div style={{fontSize:14,fontWeight:700,background:"var(--cl-bg)",color:"var(--cl-fg)",padding:"5px 12px",borderRadius:20,display:"inline-block",marginBottom:12}}>✓ Assigned This Week</div>
           {mySlots.map((s,i)=>{
             const z=zones.find(z=>z.id===s.zoneId);
+            const open=openFor(s.zoneId);
             return <div key={i} style={{background:"var(--surf)",borderRadius:9,padding:"12px 14px",display:"flex",alignItems:"center",gap:12,marginBottom:6}}>
               <Mono size={13} color="var(--blue)" style={{background:"var(--bbg)",padding:"4px 9px",borderRadius:6,flexShrink:0}}>{s.zoneId}</Mono>
               <div style={{flex:1}}><div style={{fontWeight:600,fontSize:15,color:"var(--t1)"}}>{z?.name}</div>
               <Mono size={11} color="var(--t3)">{z?.items?.length||0} checklist items</Mono></div>
-              <button onClick={()=>onStart(s.zoneId)} style={C.btn("pri",{padding:"11px 20px",fontSize:16})}>Start →</button>
+              <button onClick={()=>open?onResume(open.id):onStart(s.zoneId)} style={C.btn("pri",{padding:"11px 20px",fontSize:16})}>{open?"Resume →":"Start →"}</button>
             </div>;
           })}
         </div>
@@ -1218,7 +1292,7 @@ function SelectStep({zones,users,authUser,today,onStart}){
           </div>
         </div>)}
         <button onClick={()=>selZone&&onStart(selZone)} disabled={!selZone} style={{...C.btn("pri",{marginTop:10,width:"100%",padding:"12px",fontSize:14}),opacity:selZone?1:.35}}>
-          {selZone?`Start ${selZone} →`:"Select a zone"}
+          {selZone?(openFor(selZone)?`Resume ${selZone} →`:`Start ${selZone} →`):"Select a zone"}
         </button>
       </div>}
     </div>
