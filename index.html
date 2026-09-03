@@ -80,7 +80,7 @@ const {useState,useEffect,useRef,useCallback,useReducer} = React;
 // e.g. "https://inspectpro-api.railway.app"
 const API_BASE = window.INSPECTPRO_API || "https://inspectpro-api.onrender.com";
 
-const VERSION = "v5.4.11";
+const VERSION = "v5.4.12";
 const OPEN_INSP_KEY = "ip_open_insp_id";
 function normalizeInsp(insp){
   return {...insp, items:(insp.items||[]).map(it=>({...it, media:it.media||[]}))};
@@ -146,6 +146,77 @@ function useDebounce(value, delay){
   return debouncedValue;
 }
 const LS     = {load:k=>{try{const d=localStorage.getItem(k);return d?JSON.parse(d):null;}catch{return null;}},save:(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v));}catch{}}};
+
+// Save captured photos into a phone folder named Inspectpro (Chrome Android
+// File System Access). First Save asks the user to pick Pictures (or any
+// folder); later saves write there with no prompt. Fallback: Downloads.
+function fsDb(){
+  return new Promise((res,rej)=>{
+    const r=indexedDB.open("inspectpro-fs",1);
+    r.onupgradeneeded=()=>{ if(!r.result.objectStoreNames.contains("handles")) r.result.createObjectStore("handles"); };
+    r.onsuccess=()=>res(r.result);
+    r.onerror=()=>rej(r.error);
+  });
+}
+async function fsGetHandle(){
+  try{
+    const db=await fsDb();
+    return await new Promise((res,rej)=>{ const q=db.transaction("handles").objectStore("handles").get("galleryDir"); q.onsuccess=()=>res(q.result||null); q.onerror=()=>rej(q.error); });
+  }catch{ return null; }
+}
+async function fsSetHandle(h){
+  const db=await fsDb();
+  return new Promise((res,rej)=>{ const q=db.transaction("handles","readwrite").objectStore("handles").put(h,"galleryDir"); q.onsuccess=()=>res(); q.onerror=()=>rej(q.error); });
+}
+function inspectProFileName(file, ext){
+  const e=ext||((file&&file.type||"").startsWith("video/")?".mp4":".jpg");
+  const d=new Date();
+  const pad=n=>String(n).padStart(2,"0");
+  return "InspectPro-"+d.getFullYear()+pad(d.getMonth()+1)+pad(d.getDate())+"-"+pad(d.getHours())+pad(d.getMinutes())+pad(d.getSeconds())+e;
+}
+async function ensureGalleryDir(promptIfMissing){
+  if(typeof window.showDirectoryPicker!=="function") return null;
+  let h=await fsGetHandle();
+  if(h){
+    try{
+      const p=await h.queryPermission({mode:"readwrite"});
+      if(p==="granted") return h;
+      if(p==="prompt"){ const r=await h.requestPermission({mode:"readwrite"}); if(r==="granted") return h; }
+    }catch{}
+  }
+  if(!promptIfMissing) return null;
+  h=await window.showDirectoryPicker({id:"inspectpro-gallery",mode:"readwrite",startIn:"pictures"});
+  await fsSetHandle(h);
+  return h;
+}
+function downloadFallback(file, name){
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(file);
+  a.download=name;
+  a.style.display="none";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(()=>URL.revokeObjectURL(a.href),2500);
+}
+async function saveToInspectproFolder(file, opts){
+  const prompt=opts?.prompt!==false;
+  const name=opts?.name||inspectProFileName(file);
+  try{
+    const root=await ensureGalleryDir(prompt);
+    if(root){
+      const dir=root.name&&root.name.toLowerCase()==="inspectpro"?root:await root.getDirectoryHandle("Inspectpro",{create:true});
+      const fh=await dir.getFileHandle(name,{create:true});
+      const w=await fh.createWritable();
+      await w.write(file);
+      await w.close();
+      return "folder";
+    }
+  }catch(e){
+    if(e&&e.name==="AbortError") return "skip";
+  }
+  try{ downloadFallback(file, name); return "download"; }catch{ return "fail"; }
+}
 
 // ── SERVER WAKE-UP TRACKER ────────────────────────────────────────────────────
 // Render (free tier) spins down after inactivity. When a request takes >3 s,
@@ -1354,6 +1425,7 @@ function ZoneStep({inspection,updateItem,addMedia,removeMedia,onFinish,onCancel,
   };
 
   const handleVideo=async(itemId,file)=>{
+    saveToInspectproFolder(file,{prompt:false,name:inspectProFileName(file)}).catch(()=>{});
     try{
       const ik=await uploadToImageKit(file,"inspectpro/videos");
       const saved=await api.post("/api/media",{
@@ -1560,10 +1632,13 @@ function PhotoMarkupModal({file, onSave, onCancel}){
     canvas.getContext('2d').putImageData(newH[newH.length-1],0,0);
   };
 
-  const handleSave=()=>{
-    canvasRef.current.toBlob(blob=>{
-      onSave(new File([blob],'annotated.jpg',{type:'image/jpeg'}));
-    },'image/jpeg',0.92);
+  const handleSave=async()=>{
+    try{ await ensureGalleryDir(true); }catch(e){ if(e&&e.name!=="AbortError") console.warn(e); }
+    const blob=await new Promise((res,rej)=>canvasRef.current.toBlob(b=>b?res(b):rej(new Error("encode")),"image/jpeg",0.92));
+    const name=inspectProFileName(blob,".jpg");
+    const file=new File([blob],name,{type:"image/jpeg"});
+    saveToInspectproFolder(file,{name,prompt:false}).catch(()=>{});
+    onSave(file);
   };
 
   return <div style={{position:"fixed",inset:0,zIndex:3000,background:"rgba(0,0,0,.96)",display:"flex",flexDirection:"column"}}>
@@ -1742,6 +1817,7 @@ function TrackerItem({item,expanded,onToggle,onUpdateStatus,onNotePosted,authUse
 
   const uploadMediaFile=async(file,isVid)=>{
     if(!item.inspection_item_id){showToast("Cannot attach media to this issue","err");return;}
+    saveToInspectproFolder(file,{prompt:false,name:inspectProFileName(file)}).catch(()=>{});
     setMediaUploading(true);
     try{
       const ik=await uploadToImageKit(file,isVid?"inspectpro/videos":"inspectpro/photos");
